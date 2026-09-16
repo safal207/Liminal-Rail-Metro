@@ -17,8 +17,9 @@ import (
 //   - represent a successful execution,
 //   - carry a durable/non-empty result reference,
 //   - pass metro.Verify(...),
-//   - bind the verified result hash to the claim value hash, and
-//   - come from an executor explicitly authoritative for packet.Action.Kind.
+//   - bind the verified result hash to the claim value hash,
+//   - come from an executor explicitly authoritative for packet.Action.Kind,
+//   - and carry a durable authority policy reference + canonical policy hash.
 //
 // Only then can it cross the mirror boundary as SourceExternal evidence.
 func EvidenceFromVerifiedReceipt(
@@ -59,7 +60,9 @@ func EvidenceFromVerifiedReceipt(
 	if receipt.ResultHash != claim.ValueHash {
 		return Evidence{}, errors.New("verified receipt result hash does not match claim value hash")
 	}
-	if err := authority.Authorize(packet.Action.Kind, receipt.ExecutorID); err != nil {
+
+	authorityProof, err := authority.AuthorizeProof(packet.Action.Kind, receipt.ExecutorID)
+	if err != nil {
 		return Evidence{}, fmt.Errorf("external proof authority rejected: %w", err)
 	}
 
@@ -73,7 +76,9 @@ func EvidenceFromVerifiedReceipt(
 			"receipt://" + receipt.ReceiptID,
 			"route://" + receipt.RouteID,
 			"executor://" + receipt.ExecutorID,
-			authority.Ref(packet.Action.Kind, receipt.ExecutorID),
+			authorityProof.DecisionRef(),
+			authorityProof.PolicyRef,
+			"policy-sha256://" + authorityProof.PolicyHash,
 			receipt.ResultRef,
 		},
 	}, nil
