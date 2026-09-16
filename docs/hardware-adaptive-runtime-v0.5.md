@@ -154,6 +154,40 @@ The proof also checks:
 - restart of the rotated epoch from the same verified authority chain;
 - signed-authority and rotation proof refs in Lifetra observations.
 
+## GitHub Actions proof
+
+`Hardware Adaptive v0.5` passed on the pull-request merge ref on 2026-09-16.
+
+The runner exercised epoch 1 with `workers=1..4`. The next action, `workers=5`, was rejected before rotation without changing the epoch-1 journal. A rotation signed by the old issuer then authorized epoch 2, a new issuer key, and `workers=5`; the epoch-2 exploration executed that newly authorized action.
+
+Server-side proof values from that run:
+
+```text
+root_signed_authority = 2536698ff3084bb3ac0cecf52105f05587052acc80a8321d61951c372693a988
+rotation_hash         = 088a583105042782256e7eac886cf2aff14ad424b2942959e3f70c3d6a3861c5
+next_signed_authority = f05702a9495835c9c0095f8d6eb53b8ddcc3d6bc9d9cb6bb2d8b507b044382b8
+
+epoch1 sequence = 6
+epoch2 sequence = 5
+```
+
+The CI verifier confirmed:
+
+```text
+root_signature_verified          = true
+pre_rotation_new_action_rejected = true
+pre_rotation_changed_journal     = false
+rotation_verified                = true
+rotation_anchor_matched          = true
+missing_rotation_rejected        = true
+tampered_rotation_rejected       = true
+unanchored_self_signed_rejected  = true
+issuer_key_rotated               = true
+newly_authorized_action_executed = true
+restart_state_preserved          = true
+signed_proof_refs_present        = true
+```
+
 ## Protocol artifacts
 
 - `protocol/adaptive.signed-authority.v0.1.json`
