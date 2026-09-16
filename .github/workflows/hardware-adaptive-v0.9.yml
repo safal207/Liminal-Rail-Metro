@@ -1,0 +1,170 @@
+name: Hardware Adaptive v0.9
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  portable-keyless-proof:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+
+      - name: Require gofmt
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l -- $(find . -path './_deps' -prune -o -name '*.go' -print))"
+          if [ -n "$unformatted" ]; then
+            echo "Go files require gofmt:" >&2
+            echo "$unformatted" >&2
+            gofmt -d -- $unformatted
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: go test ./...
+
+      - name: Reproduce v0.8 proof payload
+        shell: bash
+        run: |
+          rm -f hardware-adaptive-v0.8.journal.jsonl hardware-adaptive-proof-v0.8.json hardware-adaptive-v0.8.log
+          go run ./cmd/hardware-adaptive-v08-demo | tee hardware-adaptive-v0.8.log
+
+      - name: Install pinned cosign
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/cosign-bin"
+          GOBIN="$RUNNER_TEMP/cosign-bin" go install github.com/sigstore/cosign/v3/cmd/cosign@v3.1.3
+          echo "$RUNNER_TEMP/cosign-bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/cosign-bin/cosign" version | tee cosign-v0.9.version.txt
+
+      - name: Keyless-sign v0.8 proof into portable Sigstore bundle
+        shell: bash
+        run: |
+          cosign sign-blob hardware-adaptive-proof-v0.8.json \
+            --bundle hardware-adaptive-proof-v0.9.sigstore.json \
+            --yes
+
+      - name: Independently verify signed proof
+        shell: bash
+        run: |
+          IDENTITY_REGEX='^https://github\.com/safal207/Liminal-Rail-Metro/\.github/workflows/hardware-adaptive-v0\.9\.yml@refs/(pull/[0-9]+/merge|heads/.+)$'
+          cosign verify-blob hardware-adaptive-proof-v0.8.json \
+            --bundle hardware-adaptive-proof-v0.9.sigstore.json \
+            --certificate-identity-regexp "$IDENTITY_REGEX" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            | tee cosign-verify-v0.9.log
+
+      - name: Build portable-proof receipt
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, re
+          from pathlib import Path
+
+          def sha256(path):
+              h = hashlib.sha256()
+              with open(path, 'rb') as f:
+                  for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                      h.update(chunk)
+              return h.hexdigest()
+
+          proof_path = Path('hardware-adaptive-proof-v0.8.json')
+          bundle_path = Path('hardware-adaptive-proof-v0.9.sigstore.json')
+          proof = json.loads(proof_path.read_text())
+          bundle = json.loads(bundle_path.read_text())
+
+          assert proof['protocol'] == 'liminal.hardware-adaptive-proof.v0.8'
+          assert proof['flags']['external_oidc_verified'] is True
+          assert proof['flags']['no_false_hardware_upgrade'] is True
+          assert proof['discovery']['hardware_upgrade_selected'] is False
+
+          identity_regex = r'^https://github\.com/safal207/Liminal-Rail-Metro/\.github/workflows/hardware-adaptive-v0\.9\.yml@refs/(pull/[0-9]+/merge|heads/.+)$'
+          receipt = {
+              'protocol': 'liminal.portable-proof.v0.9',
+              'source_protocol': proof['protocol'],
+              'payload_path': proof_path.name,
+              'payload_sha256': sha256(proof_path),
+              'sigstore_bundle_path': bundle_path.name,
+              'sigstore_bundle_sha256': sha256(bundle_path),
+              'sigstore_bundle_media_type': bundle.get('mediaType', ''),
+              'signing_mode': 'sigstore-keyless',
+              'cosign_release': 'v3.1.3',
+              'certificate_oidc_issuer': 'https://token.actions.githubusercontent.com',
+              'certificate_identity_regexp': identity_regex,
+              'keyless_signing_completed': True,
+              'independent_cosign_verify_passed': True,
+              'transparency_log_verified_by_cosign': True,
+              'raw_oidc_token_persisted': False,
+              'source_external_identity_verified': True,
+              'source_hardware_upgrade_selected': False,
+              'hardware_backed': False,
+              'remote_hardware_attestation': False,
+              'verification_command': 'cosign verify-blob hardware-adaptive-proof-v0.8.json --bundle hardware-adaptive-proof-v0.9.sigstore.json --certificate-identity-regexp <expected-workflow-identity> --certificate-oidc-issuer https://token.actions.githubusercontent.com',
+              'claim': 'The v0.8 proof payload was signed keylessly under a short-lived Sigstore identity certificate and verified against the expected GitHub Actions workflow identity. Cosign verification also verified the transparency-log material in the bundle. The portable bundle does not upgrade the source runtime from software-bound to hardware-backed assurance.'
+          }
+
+          raw = proof_path.read_text() + '\n' + bundle_path.read_text()
+          jwt = re.compile(r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+')
+          assert jwt.search(raw) is None, 'raw JWT-like credential unexpectedly persisted'
+
+          Path('portable-proof-v0.9.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          PY
+
+      - name: Verify portable receipt invariants
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, re
+          from pathlib import Path
+
+          def sha256(path):
+              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+          r = json.loads(Path('portable-proof-v0.9.json').read_text())
+          assert r['protocol'] == 'liminal.portable-proof.v0.9'
+          assert r['source_protocol'] == 'liminal.hardware-adaptive-proof.v0.8'
+          assert r['keyless_signing_completed'] is True
+          assert r['independent_cosign_verify_passed'] is True
+          assert r['transparency_log_verified_by_cosign'] is True
+          assert r['raw_oidc_token_persisted'] is False
+          assert r['source_external_identity_verified'] is True
+          assert r['source_hardware_upgrade_selected'] is False
+          assert r['hardware_backed'] is False
+          assert r['remote_hardware_attestation'] is False
+          assert r['payload_sha256'] == sha256(r['payload_path'])
+          assert r['sigstore_bundle_sha256'] == sha256(r['sigstore_bundle_path'])
+          assert re.fullmatch(r'[a-f0-9]{64}', r['payload_sha256'])
+          assert re.fullmatch(r'[a-f0-9]{64}', r['sigstore_bundle_sha256'])
+          print('v0.9 portable keyless proof invariants: PASS')
+          PY
+
+      - name: Show portable proof summary
+        shell: bash
+        run: |
+          python3 -m json.tool portable-proof-v0.9.json
+          cat cosign-verify-v0.9.log
+
+      - name: Upload portable proof artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hardware-adaptive-v0.9-portable-proof
+          path: |
+            hardware-adaptive-proof-v0.8.json
+            hardware-adaptive-v0.8.journal.jsonl
+            hardware-adaptive-v0.8.log
+            hardware-adaptive-proof-v0.9.sigstore.json
+            portable-proof-v0.9.json
+            cosign-verify-v0.9.log
+            cosign-v0.9.version.txt
