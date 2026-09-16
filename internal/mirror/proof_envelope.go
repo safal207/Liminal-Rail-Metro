@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	ProofEnvelopeProtocol       = "mirror.proof-envelope.v0.1"
-	VerificationStatusVerified  = "VERIFIED"
+	ProofEnvelopeProtocol      = "mirror.proof-envelope.v0.1"
+	VerificationStatusVerified = "VERIFIED"
 )
 
 // ReceiptProof carries the receipt fields needed by downstream proof-envelope
