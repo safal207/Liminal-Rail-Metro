@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liminal-rail.dev/protocol/lifetra.station.request-envelope.v0.2.json",
+  "title": "Lifetra Station Request Envelope v0.2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "request_id", "request"],
+  "properties": {
+    "protocol": {
+      "const": "lifetra.station.request-envelope.v0.2"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "request": {
+      "$ref": "lifetra.station.request.v0.1.json"
+    }
+  }
+}
