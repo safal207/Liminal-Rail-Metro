@@ -111,3 +111,24 @@ func TestAuthorizeProofCarriesPolicyHashAndRef(t *testing.T) {
 		t.Fatal("authority proof lost action/executor binding")
 	}
 }
+
+func TestProductionAuthorityPolicyCanonicalHashFixture(t *testing.T) {
+	policy := AuthorityPolicy{
+		Protocol:  AuthorityPolicyProtocol,
+		ID:        "production-authority-v1",
+		PolicyRef: "policy://liminal-rail/authority/production/v1",
+		ExecutorsByAction: map[string][]string{
+			"code.implement":  {"code-agent"},
+			"payment.capture": {"payments-agent"},
+		},
+	}
+
+	snapshot, err := policy.Snapshot()
+	if err != nil {
+		t.Fatalf("snapshot production authority policy: %v", err)
+	}
+	const want = "f8bdd14b870cc118e21c9bb0491ccf888063cb9991df87e8e9c607892e6c9b69"
+	if snapshot.PolicyHash != want {
+		t.Fatalf("canonical production policy hash drifted: got %s want %s", snapshot.PolicyHash, want)
+	}
+}
