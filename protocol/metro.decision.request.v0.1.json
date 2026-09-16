@@ -8,6 +8,7 @@
     "protocol",
     "request_id",
     "action_id",
+    "state_hash",
     "choices",
     "choices_hash",
     "requested_at"
@@ -26,6 +27,10 @@
     },
     "state": {
       "type": "object"
+    },
+    "state_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
     },
     "choices": {
       "type": "array",
