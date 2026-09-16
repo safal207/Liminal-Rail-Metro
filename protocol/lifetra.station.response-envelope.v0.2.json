@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liminal-rail.dev/protocol/lifetra.station.response-envelope.v0.2.json",
+  "title": "Lifetra Station Response Envelope v0.2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "request_id", "decision"],
+  "properties": {
+    "protocol": {
+      "const": "lifetra.station.response-envelope.v0.2"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "decision": {
+      "$ref": "lifetra.decision.v0.1.json"
+    }
+  }
+}
