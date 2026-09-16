@@ -34,6 +34,7 @@ type Request struct {
 	RequestID   string         `json:"request_id"`
 	ActionID    string         `json:"action_id"`
 	State       map[string]any `json:"state,omitempty"`
+	StateHash   string         `json:"state_hash"`
 	Choices     []Choice       `json:"choices"`
 	ChoicesHash string         `json:"choices_hash"`
 	RequestedAt string         `json:"requested_at"`
@@ -49,6 +50,7 @@ type Decision struct {
 	RequestID        string        `json:"request_id"`
 	ActionID         string        `json:"action_id"`
 	ProviderID       string        `json:"provider_id"`
+	StateHash        string        `json:"state_hash"`
 	ChoicesHash      string        `json:"choices_hash"`
 	SelectedChoiceID string        `json:"selected_choice_id"`
 	Probabilities    []Probability `json:"probabilities"`
@@ -114,7 +116,12 @@ func NewRequest(packet metro.Packet, requestID string, state map[string]any, cho
 		seenTargets[choice.Target] = struct{}{}
 	}
 
-	choicesHash, err := HashChoices(choices)
+	stateCopy, stateHash, err := cloneAndHashState(state)
+	if err != nil {
+		return Request{}, err
+	}
+	choicesCopy := append([]Choice(nil), choices...)
+	choicesHash, err := HashChoices(choicesCopy)
 	if err != nil {
 		return Request{}, err
 	}
@@ -122,11 +129,38 @@ func NewRequest(packet metro.Packet, requestID string, state map[string]any, cho
 		Protocol:    RequestProtocol,
 		RequestID:   requestID,
 		ActionID:    packet.ActionID,
-		State:       state,
-		Choices:     append([]Choice(nil), choices...),
+		State:       stateCopy,
+		StateHash:   stateHash,
+		Choices:     choicesCopy,
 		ChoicesHash: choicesHash,
 		RequestedAt: metro.NowISO(),
 	}, nil
+}
+
+func HashState(state map[string]any) (string, error) {
+	payload, err := json.Marshal(state)
+	if err != nil {
+		return "", fmt.Errorf("encode decision state: %w", err)
+	}
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func cloneAndHashState(state map[string]any) (map[string]any, string, error) {
+	payload, err := json.Marshal(state)
+	if err != nil {
+		return nil, "", fmt.Errorf("encode decision state: %w", err)
+	}
+	sum := sha256.Sum256(payload)
+	hash := hex.EncodeToString(sum[:])
+	if state == nil {
+		return nil, hash, nil
+	}
+	var copyState map[string]any
+	if err := json.Unmarshal(payload, &copyState); err != nil {
+		return nil, "", fmt.Errorf("clone decision state: %w", err)
+	}
+	return copyState, hash, nil
 }
 
 func HashChoices(choices []Choice) (string, error) {
@@ -152,6 +186,24 @@ func ValidateDecision(packet metro.Packet, request Request, decision Decision) e
 	}
 	if decision.RequestID != request.RequestID {
 		return errors.New("decision request_id mismatch")
+	}
+
+	stateHash, err := HashState(request.State)
+	if err != nil {
+		return err
+	}
+	if request.StateHash != stateHash {
+		return errors.New("decision request state changed after binding")
+	}
+	if decision.StateHash != request.StateHash {
+		return errors.New("decision state_hash mismatch")
+	}
+	choicesHash, err := HashChoices(request.Choices)
+	if err != nil {
+		return err
+	}
+	if request.ChoicesHash != choicesHash {
+		return errors.New("decision request choices changed after binding")
 	}
 	if decision.ChoicesHash != request.ChoicesHash {
 		return errors.New("decision choices_hash mismatch")
@@ -326,6 +378,7 @@ func NewDecision(request Request, providerID, selectedChoiceID string, probabili
 		RequestID:        request.RequestID,
 		ActionID:         request.ActionID,
 		ProviderID:       providerID,
+		StateHash:        request.StateHash,
 		ChoicesHash:      request.ChoicesHash,
 		SelectedChoiceID: selectedChoiceID,
 		Probabilities:    append([]Probability(nil), probabilities...),
