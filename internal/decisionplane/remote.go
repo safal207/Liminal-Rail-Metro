@@ -83,6 +83,9 @@ func NewRemoteProvider(config RemoteProviderConfig) (*RemoteProvider, error) {
 	if config.Timeout > 0 {
 		client.Timeout = config.Timeout
 	}
+	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
 
 	headers := make(map[string]string, len(config.Headers))
 	for name, value := range config.Headers {
