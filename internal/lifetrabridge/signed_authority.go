@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	SignedAuthorityRefPrefix = "adaptive-signed-authority://sha256/"
-	AuthoritySignerRefPrefix = "adaptive-authority-signer://ed25519/sha256/"
+	SignedAuthorityRefPrefix   = "adaptive-signed-authority://sha256/"
+	AuthoritySignerRefPrefix   = "adaptive-authority-signer://ed25519/sha256/"
 	AuthorityRotationRefPrefix = "adaptive-authority-rotation://sha256/"
 )
 
