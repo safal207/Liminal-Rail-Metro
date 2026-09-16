@@ -42,12 +42,13 @@ jobs:
           go run ./cmd/hardware-adaptive-v08-demo | tee hardware-adaptive-v0.8.log
 
       - name: Install pinned cosign
+        uses: sigstore/cosign-installer@v4.1.2
+        with:
+          cosign-release: v3.1.3
+
+      - name: Record cosign version
         shell: bash
-        run: |
-          mkdir -p "$RUNNER_TEMP/cosign-bin"
-          GOBIN="$RUNNER_TEMP/cosign-bin" go install github.com/sigstore/cosign/v3/cmd/cosign@v3.1.3
-          echo "$RUNNER_TEMP/cosign-bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/cosign-bin/cosign" version | tee cosign-v0.9.version.txt
+        run: cosign version | tee cosign-v0.9.version.txt
 
       - name: Keyless-sign v0.8 proof into portable Sigstore bundle
         shell: bash
