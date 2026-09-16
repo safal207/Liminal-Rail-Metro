@@ -1,6 +1,7 @@
 package mirror
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/safal207/Liminal-Rail-Metro/internal/metro"
@@ -9,7 +10,7 @@ import (
 func TestEvidenceFromVerifiedReceiptPromotesBoundSuccess(t *testing.T) {
 	claim, packet, route, result, receipt := verifiedFixture(t, "action-bridge-001")
 
-	evidence, err := EvidenceFromVerifiedReceipt(claim, packet, route, result, receipt)
+	evidence, err := EvidenceFromVerifiedReceipt(claim, packet, route, result, receipt, testCodeAuthorityPolicy())
 	if err != nil {
 		t.Fatalf("promote receipt: %v", err)
 	}
@@ -19,8 +20,11 @@ func TestEvidenceFromVerifiedReceiptPromotesBoundSuccess(t *testing.T) {
 	if evidence.ClaimID != claim.ID || evidence.ActionID != claim.ActionID || evidence.ValueHash != claim.ValueHash {
 		t.Fatal("promoted evidence lost claim/action/value binding")
 	}
-	if len(evidence.Provenance) < 4 {
-		t.Fatalf("expected receipt provenance chain, got %v", evidence.Provenance)
+	if len(evidence.Provenance) < 5 {
+		t.Fatalf("expected receipt + authority provenance chain, got %v", evidence.Provenance)
+	}
+	if !containsPrefix(evidence.Provenance, "authority://") {
+		t.Fatalf("expected explicit authority provenance, got %v", evidence.Provenance)
 	}
 
 	decision := (Gate{}).Evaluate(claim, []Evidence{evidence})
@@ -33,7 +37,7 @@ func TestEvidenceFromVerifiedReceiptRejectsTamperedResult(t *testing.T) {
 	claim, packet, route, result, receipt := verifiedFixture(t, "action-bridge-002")
 	result["status"] = "tampered"
 
-	if _, err := EvidenceFromVerifiedReceipt(claim, packet, route, result, receipt); err == nil {
+	if _, err := EvidenceFromVerifiedReceipt(claim, packet, route, result, receipt, testCodeAuthorityPolicy()); err == nil {
 		t.Fatal("expected tampered result to fail receipt verification")
 	}
 }
@@ -47,7 +51,7 @@ func TestEvidenceFromVerifiedReceiptRejectsFailedStatus(t *testing.T) {
 	if err := metro.Verify(packet, route, result, receipt); err != nil {
 		t.Fatalf("fixture should remain hash/binding-valid: %v", err)
 	}
-	if _, err := EvidenceFromVerifiedReceipt(claim, packet, route, result, receipt); err == nil {
+	if _, err := EvidenceFromVerifiedReceipt(claim, packet, route, result, receipt, testCodeAuthorityPolicy()); err == nil {
 		t.Fatal("expected failed receipt status to be non-promotable")
 	}
 }
@@ -56,7 +60,7 @@ func TestEvidenceFromVerifiedReceiptRejectsDifferentClaimAction(t *testing.T) {
 	claim, packet, route, result, receipt := verifiedFixture(t, "action-bridge-004")
 	claim.ActionID = "action-other"
 
-	if _, err := EvidenceFromVerifiedReceipt(claim, packet, route, result, receipt); err == nil {
+	if _, err := EvidenceFromVerifiedReceipt(claim, packet, route, result, receipt, testCodeAuthorityPolicy()); err == nil {
 		t.Fatal("expected cross-action receipt promotion to fail closed")
 	}
 }
@@ -65,7 +69,7 @@ func TestEvidenceFromVerifiedReceiptRejectsClaimValueMismatch(t *testing.T) {
 	claim, packet, route, result, receipt := verifiedFixture(t, "action-bridge-005")
 	claim.ValueHash = mustHash(t, map[string]any{"status": "different"})
 
-	if _, err := EvidenceFromVerifiedReceipt(claim, packet, route, result, receipt); err == nil {
+	if _, err := EvidenceFromVerifiedReceipt(claim, packet, route, result, receipt, testCodeAuthorityPolicy()); err == nil {
 		t.Fatal("expected receipt result hash mismatch to fail closed")
 	}
 }
@@ -74,7 +78,7 @@ func TestEvidenceFromVerifiedReceiptRejectsMissingResultRef(t *testing.T) {
 	claim, packet, route, result, receipt := verifiedFixture(t, "action-bridge-006")
 	receipt.ResultRef = ""
 
-	if _, err := EvidenceFromVerifiedReceipt(claim, packet, route, result, receipt); err == nil {
+	if _, err := EvidenceFromVerifiedReceipt(claim, packet, route, result, receipt, testCodeAuthorityPolicy()); err == nil {
 		t.Fatal("expected receipt without external result reference to fail closed")
 	}
 }
@@ -116,4 +120,22 @@ func verifiedFixture(t *testing.T, actionID string) (Claim, metro.Packet, metro.
 	}
 
 	return claim, packet, route, result, receipt
+}
+
+func testCodeAuthorityPolicy() AuthorityPolicy {
+	return AuthorityPolicy{
+		ID: "test-authority-v1",
+		ExecutorsByAction: map[string][]string{
+			"code.implement": {"code-agent"},
+		},
+	}
+}
+
+func containsPrefix(values []string, prefix string) bool {
+	for _, value := range values {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
 }
