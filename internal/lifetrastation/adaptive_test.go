@@ -27,9 +27,9 @@ func TestAdaptiveRouterPrefersLowerEstimatedDelay(t *testing.T) {
 	pool.stations[1].ewma = 500 * time.Microsecond
 	pool.stations[1].inFlight = 1
 
-	pool.lock()
+	pool.mu.Lock()
 	index := pool.chooseStationLocked()
-	pool.unlock()
+	pool.mu.Unlock()
 
 	if index != 1 {
 		t.Fatalf("expected lower estimated delay station 1, got %d", index)
