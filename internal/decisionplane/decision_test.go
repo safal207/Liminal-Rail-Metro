@@ -16,6 +16,24 @@ func TestNewRequestRejectsChoiceOutsidePacketTargets(t *testing.T) {
 	}
 }
 
+func TestNewRequestCopiesStateBeforeHashBinding(t *testing.T) {
+	packet := decisionTestPacket(false)
+	state := map[string]any{"phase": "research", "nested": map[string]any{"attempt": float64(1)}}
+	request, err := NewRequest(packet, "copy-state", state, []Choice{{ID: "code", Target: "code-agent"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state["phase"] = "deploy"
+	state["nested"].(map[string]any)["attempt"] = float64(2)
+	if request.State["phase"] != "research" {
+		t.Fatalf("request state followed caller mutation: %#v", request.State)
+	}
+	nested, ok := request.State["nested"].(map[string]any)
+	if !ok || nested["attempt"] != float64(1) {
+		t.Fatalf("nested request state followed caller mutation: %#v", request.State)
+	}
+}
+
 func TestHighConfidenceBoundedDecisionCreatesRoute(t *testing.T) {
 	packet := decisionTestPacket(false)
 	request := mustDecisionRequest(t, packet)
@@ -97,6 +115,36 @@ func TestSideEffectRequiresApprovalRegardlessOfConfidence(t *testing.T) {
 	}
 }
 
+func TestTamperedStateBindingFailsClosed(t *testing.T) {
+	packet := decisionTestPacket(false)
+	request := mustDecisionRequest(t, packet)
+	decision := NewDecision(request, "system-one-proof", "code", []Probability{
+		{ChoiceID: "research", Probability: 0.005},
+		{ChoiceID: "code", Probability: 0.99},
+		{ChoiceID: "qa", Probability: 0.005},
+	}, 0.99)
+	decision.StateHash = strings.Repeat("0", 64)
+
+	if _, err := ApplyDecision(packet, request, decision, DefaultGatePolicy()); err == nil {
+		t.Fatal("expected state_hash mismatch to fail closed")
+	}
+}
+
+func TestMutatedBoundRequestStateFailsClosed(t *testing.T) {
+	packet := decisionTestPacket(false)
+	request := mustDecisionRequest(t, packet)
+	decision := NewDecision(request, "system-one-proof", "code", []Probability{
+		{ChoiceID: "research", Probability: 0.005},
+		{ChoiceID: "code", Probability: 0.99},
+		{ChoiceID: "qa", Probability: 0.005},
+	}, 0.99)
+	request.State["kind"] = "deploy.production"
+
+	if _, err := ApplyDecision(packet, request, decision, DefaultGatePolicy()); err == nil {
+		t.Fatal("expected post-binding request state mutation to fail closed")
+	}
+}
+
 func TestTamperedChoiceBindingFailsClosed(t *testing.T) {
 	packet := decisionTestPacket(false)
 	request := mustDecisionRequest(t, packet)
@@ -109,6 +157,21 @@ func TestTamperedChoiceBindingFailsClosed(t *testing.T) {
 
 	if _, err := ApplyDecision(packet, request, decision, DefaultGatePolicy()); err == nil {
 		t.Fatal("expected choices_hash mismatch to fail closed")
+	}
+}
+
+func TestMutatedBoundRequestChoicesFailClosed(t *testing.T) {
+	packet := decisionTestPacket(false)
+	request := mustDecisionRequest(t, packet)
+	decision := NewDecision(request, "system-one-proof", "code", []Probability{
+		{ChoiceID: "research", Probability: 0.005},
+		{ChoiceID: "code", Probability: 0.99},
+		{ChoiceID: "qa", Probability: 0.005},
+	}, 0.99)
+	request.Choices[0].Label = "Changed after binding"
+
+	if _, err := ApplyDecision(packet, request, decision, DefaultGatePolicy()); err == nil {
+		t.Fatal("expected post-binding request choice mutation to fail closed")
 	}
 }
 
