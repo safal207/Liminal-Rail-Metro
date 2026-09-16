@@ -135,7 +135,7 @@ func (p *SoftwareProvider) Enroll() (ProviderTrustAnchor, ProviderEvidence, erro
 	if err != nil {
 		return ProviderTrustAnchor{}, ProviderEvidence{}, err
 	}
-	wrappedEvidence, err := wrapProviderEvidence(p.Descriptor(), evidence)
+	wrappedEvidence, err := wrapProviderEvidence(p.Descriptor(), stableSoftwareEvidence(evidence))
 	if err != nil {
 		return ProviderTrustAnchor{}, ProviderEvidence{}, err
 	}
@@ -147,7 +147,7 @@ func (p *SoftwareProvider) Evidence() (ProviderEvidence, error) {
 	if err != nil {
 		return ProviderEvidence{}, err
 	}
-	return wrapProviderEvidence(p.Descriptor(), evidence)
+	return wrapProviderEvidence(p.Descriptor(), stableSoftwareEvidence(evidence))
 }
 
 func (p *SoftwareProvider) ValidateAnchor(anchor ProviderTrustAnchor) error {
@@ -184,7 +184,7 @@ func (p *SoftwareProvider) Attest(binding ProviderBinding) (ProviderAttestation,
 	if err != nil {
 		return ProviderAttestation{}, err
 	}
-	wrappedEvidence, err := wrapProviderEvidence(p.Descriptor(), evidence)
+	wrappedEvidence, err := wrapProviderEvidence(p.Descriptor(), stableSoftwareEvidence(evidence))
 	if err != nil {
 		return ProviderAttestation{}, err
 	}
@@ -213,7 +213,7 @@ func (p *SoftwareProvider) Verify(att ProviderAttestation, anchor ProviderTrustA
 	if err != nil {
 		return err
 	}
-	wrappedCurrent, err := wrapProviderEvidence(p.Descriptor(), current)
+	wrappedCurrent, err := wrapProviderEvidence(p.Descriptor(), stableSoftwareEvidence(current))
 	if err != nil {
 		return err
 	}
@@ -221,6 +221,11 @@ func (p *SoftwareProvider) Verify(att ProviderAttestation, anchor ProviderTrustA
 		return errors.New("provider attestation evidence hash does not match current evidence")
 	}
 	return VerifyBound(rawAtt, rawAnchor, binding.Nonce, current, binding.SignedAuthorityHash, binding.AuthorityIssuerKeyID, binding.JournalSequence, binding.JournalHead, binding.Workload, binding.ContextKey)
+}
+
+func stableSoftwareEvidence(e Evidence) Evidence {
+	e.ObservedAt = ""
+	return e
 }
 
 func wrapProviderAnchor(descriptor ProviderDescriptor, payload any) (ProviderTrustAnchor, error) {
