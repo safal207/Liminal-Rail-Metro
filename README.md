@@ -19,16 +19,18 @@ The engine is intentionally designed around Go's strengths for this problem: lig
 Current layout:
 
 ```text
-cmd/metro-demo/          executable proof
-cmd/lifetra-bridge-demo/ Metro <-> Lifetra control-loop demo
+cmd/metro-demo/          executable Metro proof
+cmd/lifetra-bridge-demo/ typed bridge proof
+cmd/rail-loop-demo/      real Go -> Rust -> Go loop
 internal/metro/          Go protocol engine
-internal/lifetrabridge/  proof/control bridge
+internal/lifetrabridge/  proof/control contracts
+internal/lifetrastation/ external station process boundary
 protocol/                JSON protocol schemas
 examples/                protocol journeys
 docs/                    architecture and claim ceiling
 ```
 
-## v0.1 scope
+## v0.1 protocol seed
 
 The first version intentionally stays small:
 
@@ -68,23 +70,66 @@ Execution Receipt
 Next Metro Packet
 ```
 
+## v0.2 E2E Rail Loop
+
+v0.2 adds the first real cross-runtime control loop:
+
+```text
+Go Metro
+  -> packet
+  -> route
+  -> bounded execution
+  -> receipt
+  -> observation
+  -> Rust Lifetra Station
+  -> DecisionAuthority
+  -> decision JSON
+  -> Go binding validation
+  -> ALLOW only
+  -> next Metro packet
+  -> next Metro route
+```
+
+The Rust side runs as an external process over JSON stdin/stdout. Go does not blindly accept its output: the returned decision must remain bound to the same observation, prior action, and receipt. `BLOCK` and `REQUIRE_APPROVAL` are not dispatch authority and cannot carry an executable next action through this boundary.
+
+Run it with a Lifetra checkout:
+
+```bash
+go run ./cmd/rail-loop-demo -lifetra-dir ../Lifetra
+```
+
+A successful proof ends with:
+
+```json
+{
+  "cross_runtime_loop": "PASS",
+  "path": "Go -> Rust -> Go",
+  "final_target": "qa-agent"
+}
+```
+
+CI pins the Lifetra station to merge commit `80fc633e00c863aeb6505f008c43840ca6445579` so the proof cannot silently change when Lifetra evolves.
+
 ## Core artifacts
 
 - `protocol/metro.packet.v0.1.json` — bounded action envelope
 - `protocol/metro.route.v0.1.json` — route decision envelope
 - `protocol/metro.receipt.v0.1.json` — execution evidence envelope
 - `protocol/lifetra.observation.v0.1.json` — Metro receipt -> Lifetra observation contract
+- `protocol/lifetra.station.request.v0.1.json` — control-station request contract
 - `protocol/lifetra.decision.v0.1.json` — Lifetra authority decision -> Metro packet contract
 - `examples/research-code-qa.json` — minimal Metro journey
 - `examples/lifetra-control-loop.json` — proof/control-loop bridge example
 - `internal/metro/metro.go` — Go engine core
-- `internal/metro/metro_test.go` — protocol invariant tests
 - `internal/lifetrabridge/bridge.go` — Go bridge adapter
-- `internal/lifetrabridge/bridge_test.go` — bridge invariant tests
+- `internal/lifetrabridge/station.go` — station request types and validation
+- `internal/lifetrastation/process.go` — external process station adapter
 - `cmd/metro-demo/main.go` — executable Go demonstration
-- `cmd/lifetra-bridge-demo/main.go` — executable bridge demonstration
+- `cmd/lifetra-bridge-demo/main.go` — typed bridge demonstration
+- `cmd/rail-loop-demo/main.go` — executable Go -> Rust -> Go proof
 - `docs/architecture.md` — v0.1 architecture and claim ceiling
 - `docs/lifetra-bridge.md` — bridge boundary and invariants
+- `docs/e2e-rail-loop.md` — cross-runtime v0.2 proof
 
 ## Lifetra bridge
 
@@ -122,7 +167,10 @@ If execution identity or completion is uncertain, the system should surface `UNK
 ### 6. Authority is separate from execution
 A Lifetra `ALLOW` decision can authorize creation of a new Metro packet, but permission is not evidence that the packet was dispatched or that its external effect completed.
 
-## Non-goals for v0.1
+### 7. Cross-runtime output is untrusted until rebound
+A station decision must be checked against the observation, action identity, and receipt that caused it before Go can create the next packet.
+
+## Non-goals
 
 This repository does **not** yet claim:
 
@@ -131,12 +179,13 @@ This repository does **not** yet claim:
 - production-grade scheduling, billing, auth, or service discovery;
 - benchmark superiority over existing queues, buses, or agent frameworks;
 - autonomous safety for high-risk actions;
-- automatic Lifetra bead creation or Rust FFI/RPC integration;
-- safe redispatch after an `UNKNOWN` external effect.
+- safe redispatch after an `UNKNOWN` external effect;
+- durable orchestration across process crashes;
+- production RPC between Metro and Lifetra.
 
-The first milestone is only to make the handoff, evidence, and control boundary explicit, small, and testable.
+The current milestone is to make the handoff, evidence, control, and cross-runtime boundary explicit, small, and independently testable.
 
-## Run the Go demos
+## Run the demos
 
 Metro core:
 
@@ -144,13 +193,19 @@ Metro core:
 go run ./cmd/metro-demo
 ```
 
-Lifetra bridge:
+Typed Lifetra bridge:
 
 ```bash
 go run ./cmd/lifetra-bridge-demo
 ```
 
-Run invariant tests:
+Real Go -> Rust -> Go loop:
+
+```bash
+go run ./cmd/rail-loop-demo -lifetra-dir ../Lifetra
+```
+
+Run Go invariant tests:
 
 ```bash
 go test ./...
@@ -158,7 +213,7 @@ go test ./...
 
 ## Status
 
-`v0.1` — protocol seed / experimental Go engine with Lifetra bridge.
+`v0.2` — experimental Go Metro engine with a proof-backed Rust Lifetra control station and a CI-verified cross-runtime loop.
 
 Contributions should preserve the narrow claim ceiling: make the protocol more independently verifiable before making it more ambitious.
 
