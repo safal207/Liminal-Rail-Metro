@@ -75,22 +75,42 @@ The implementation is in `internal/mirror`.
 
 ## Metro receipt integration
 
-The existing Metro receipt is a natural candidate for external proof, but only after the receipt itself has been verified against the packet, route, input hash, and result hash.
-
-A future adapter should follow this order:
+Metro receipts can cross the mirror boundary through `EvidenceFromVerifiedReceipt` only after they are independently bound back to the packet, route, concrete result, and claim.
 
 ```text
 metro.Packet
     -> metro.Route
     -> executor effect
     -> metro.Receipt
-    -> metro.Verify(...)
-    -> mirror.Evidence{Source: external, Verified: true, Provenance: [receipt ref]}
+    -> metro.Verify(packet, route, result, receipt)
+    -> receipt protocol/status/provenance checks
+    -> claim/action/result-hash binding
+    -> mirror.Evidence{Source: external, Verified: true}
     -> mirror.Gate
     -> COMMIT / REJECT
 ```
 
-A receipt that has not passed `metro.Verify` must not be promoted to verified external evidence.
+Promotion is fail-closed. The adapter requires:
+
+- the claim and packet to share the same `action_id`;
+- `metro.receipt.v0.1` as the receipt protocol;
+- receipt status `SUCCEEDED`;
+- non-empty `receipt_id` and `result_ref` provenance;
+- successful `metro.Verify(...)` binding of packet, route, executor, input hash, and result hash;
+- the verified receipt `result_hash` to equal the claim `value_hash`.
+
+A receipt that fails any one of those checks is not emitted as `SourceExternal` evidence.
+
+The emitted provenance chain includes the receipt, route, executor, and result reference:
+
+```text
+receipt://<receipt_id>
+route://<route_id>
+executor://<executor_id>
+<result_ref>
+```
+
+This keeps the proof lineage visible rather than collapsing a successful receipt into an untraceable boolean.
 
 ## Scope and limitation
 
