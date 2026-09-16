@@ -75,8 +75,9 @@ func StoreEvidenceBundle(
 }
 
 // VerifyEvidenceBundleFromCAS resolves every artifact solely from bundle refs,
-// verifies each digest, decodes the exact inputs, and independently replays the
-// proof. No caller-provided in-memory source artifacts are trusted.
+// verifies each raw byte digest before decoding the exact inputs, and
+// independently replays the proof. No caller-provided in-memory source
+// artifacts are trusted.
 func VerifyEvidenceBundleFromCAS(bundle EvidenceBundle, resolver CASResolver) (ReplayReport, error) {
 	if resolver == nil {
 		return ReplayReport{}, errors.New("CAS resolver is required")
@@ -91,7 +92,8 @@ func VerifyEvidenceBundleFromCAS(bundle EvidenceBundle, resolver CASResolver) (R
 		if err != nil {
 			return ReplayReport{}, fmt.Errorf("resolve %q: %w", entry.Kind, err)
 		}
-		if digestRaw(content) != entry.Digest {
+		digest := digestBytes(content)
+		if digest != entry.Digest {
 			return ReplayReport{}, fmt.Errorf("resolved artifact %q digest mismatch", entry.Kind)
 		}
 		resolved[entry.Kind] = content
@@ -141,7 +143,7 @@ func VerifyEvidenceBundleFromCAS(bundle EvidenceBundle, resolver CASResolver) (R
 	return replayed, nil
 }
 
-func digestRaw(content []byte) string {
+func digestBytes(content []byte) string {
 	sum := sha256.Sum256(content)
 	return hex.EncodeToString(sum[:])
 }
