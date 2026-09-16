@@ -69,6 +69,25 @@ func TestVerifyEvidenceBundleFromCASRejectsResolverDigestMismatch(t *testing.T) 
 	}
 }
 
+func TestVerifyEvidenceBundleFromCASRejectsSemanticallyEqualDifferentBytes(t *testing.T) {
+	claim, packet, route, result, receipt := verifiedFixture(t, "action-cas-004")
+	policy := testCodeAuthorityPolicy()
+	envelope, err := BuildProofEnvelope(claim, packet, route, result, receipt, policy)
+	if err != nil {
+		t.Fatalf("build proof envelope: %v", err)
+	}
+	store := NewMemoryCAS()
+	bundle, _, err := StoreEvidenceBundle(store, envelope, packet, route, result, receipt, policy)
+	if err != nil {
+		t.Fatalf("store evidence bundle: %v", err)
+	}
+
+	resolver := whitespaceResolver{base: store}
+	if _, err := VerifyEvidenceBundleFromCAS(bundle, resolver); err == nil {
+		t.Fatal("CAS identity must bind exact raw bytes, not only semantically equivalent JSON")
+	}
+}
+
 func TestMemoryCASPutCopiesInput(t *testing.T) {
 	store := NewMemoryCAS()
 	content := []byte(`{"proof":"stable"}`)
@@ -109,4 +128,16 @@ func (r corruptResolver) Resolve(ref string) ([]byte, error) {
 	corrupt := append([]byte(nil), content...)
 	corrupt[len(corrupt)-1] ^= 1
 	return corrupt, nil
+}
+
+type whitespaceResolver struct {
+	base CASResolver
+}
+
+func (r whitespaceResolver) Resolve(ref string) ([]byte, error) {
+	content, err := r.base.Resolve(ref)
+	if err != nil {
+		return nil, err
+	}
+	return append(append([]byte(nil), content...), '\n'), nil
 }
