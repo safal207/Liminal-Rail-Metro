@@ -30,9 +30,9 @@ type RequestEnvelope struct {
 }
 
 type ResponseEnvelope struct {
-	Protocol  string                     `json:"protocol"`
-	RequestID string                     `json:"request_id"`
-	Decision  lifetrabridge.Decision     `json:"decision"`
+	Protocol  string                 `json:"protocol"`
+	RequestID string                 `json:"request_id"`
+	Decision  lifetrabridge.Decision `json:"decision"`
 }
 
 type MuxErrorEnvelope struct {
@@ -62,19 +62,19 @@ type pendingRequest struct {
 type MultiplexProcess struct {
 	Config ProcessConfig
 
-	mu        sync.Mutex
-	writeMu   sync.Mutex
-	cmd       *exec.Cmd
-	stdin     io.WriteCloser
-	scanner   *bufio.Scanner
-	stderr    bytes.Buffer
-	pending   map[string]pendingRequest
-	seen      map[string]struct{}
-	abandoned map[string]struct{}
+	mu         sync.Mutex
+	writeMu    sync.Mutex
+	cmd        *exec.Cmd
+	stdin      io.WriteCloser
+	scanner    *bufio.Scanner
+	stderr     bytes.Buffer
+	pending    map[string]pendingRequest
+	seen       map[string]struct{}
+	abandoned  map[string]struct{}
 	readerDone chan struct{}
-	readerErr error
-	closed    bool
-	waited    bool
+	readerErr  error
+	closed     bool
+	waited     bool
 }
 
 func (station *MultiplexProcess) Start() error {
@@ -304,9 +304,11 @@ func (station *MultiplexProcess) dispatchLine(line []byte) error {
 
 func (station *MultiplexProcess) removePending(requestID string, abandon bool) {
 	station.mu.Lock()
-	delete(station.pending, requestID)
-	if abandon {
-		station.abandoned[requestID] = struct{}{}
+	if _, exists := station.pending[requestID]; exists {
+		delete(station.pending, requestID)
+		if abandon {
+			station.abandoned[requestID] = struct{}{}
+		}
 	}
 	station.mu.Unlock()
 }
