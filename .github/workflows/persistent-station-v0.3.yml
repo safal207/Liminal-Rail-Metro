@@ -32,10 +32,12 @@ jobs:
 
       - name: Require gofmt
         run: |
-          unformatted="$(gofmt -l -- $(find . -path './_deps' -prune -o -name '*.go' -print))"
+          files="$(find . -path './_deps' -prune -o -name '*.go' -print)"
+          unformatted="$(gofmt -l -- $files)"
           if [ -n "$unformatted" ]; then
             echo "Go files require gofmt:" >&2
             echo "$unformatted" >&2
+            gofmt -d -- $unformatted
             exit 1
           fi
 
