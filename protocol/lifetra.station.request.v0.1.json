@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:liminal-rail:lifetra.station.request:v0.1",
+  "title": "Lifetra Metro Station Request v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "observation",
+    "observed_epoch_seconds",
+    "decided_at",
+    "intended_orientation",
+    "correction",
+    "safety",
+    "authority_context",
+    "next_action"
+  ],
+  "properties": {
+    "protocol": { "const": "lifetra.station.request.v0.1" },
+    "observation": { "$ref": "lifetra.observation.v0.1.json" },
+    "observed_epoch_seconds": { "type": "integer" },
+    "decided_at": { "type": "string", "format": "date-time" },
+    "intended_orientation": { "$ref": "#/$defs/orientation" },
+    "observed_orientation": { "$ref": "#/$defs/orientation" },
+    "correction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gain", "engage_threshold", "release_threshold", "max_step"],
+      "properties": {
+        "gain": { "type": "number", "minimum": 0, "maximum": 1 },
+        "engage_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "release_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "max_step": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "description": "Lifetra also requires release_threshold <= engage_threshold."
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "autonomy",
+        "min_proof_refs",
+        "quorum_required",
+        "require_human_approval",
+        "max_autonomous_adjustment",
+        "hard_max_adjustment"
+      ],
+      "properties": {
+        "autonomy": {
+          "type": "string",
+          "enum": ["observe_only", "recommend_only", "bounded_automatic"]
+        },
+        "min_proof_refs": { "type": "integer", "minimum": 0 },
+        "quorum_required": { "type": "integer", "minimum": 0 },
+        "require_human_approval": { "type": "boolean" },
+        "max_autonomous_adjustment": { "type": "number", "minimum": 0, "maximum": 1 },
+        "hard_max_adjustment": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "description": "Lifetra also requires max_autonomous_adjustment <= hard_max_adjustment."
+    },
+    "authority_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["human_approval", "quorum_approvals"],
+      "properties": {
+        "human_approval": {
+          "type": "string",
+          "enum": ["unknown", "approved", "denied"]
+        },
+        "quorum_approvals": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "next_action": { "$ref": "#/$defs/nextAction" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "observation": {
+            "properties": {
+              "receipt_status": { "enum": ["SUCCEEDED", "FAILED"] }
+            },
+            "required": ["receipt_status"]
+          }
+        }
+      },
+      "then": { "required": ["observed_orientation"] }
+    }
+  ],
+  "$defs": {
+    "orientation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["growth", "stability", "truth", "connection"],
+      "properties": {
+        "growth": { "type": "number", "minimum": 0, "maximum": 1 },
+        "stability": { "type": "number", "minimum": 0, "maximum": 1 },
+        "truth": { "type": "number", "minimum": 0, "maximum": 1 },
+        "connection": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "nextAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action_id", "goal", "kind", "inputs", "allowed_targets"],
+      "properties": {
+        "action_id": { "type": "string", "minLength": 8 },
+        "goal": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "inputs": { "type": "object" },
+        "allowed_targets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "timeout_ms": { "type": "integer", "minimum": 1 },
+        "side_effect": { "type": "boolean", "default": false }
+      }
+    }
+  }
+}
