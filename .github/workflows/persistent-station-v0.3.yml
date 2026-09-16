@@ -1,0 +1,63 @@
+name: Persistent Station v0.3
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  persistent-station:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Liminal Rail Metro
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Checkout proven persistent Lifetra station
+        uses: actions/checkout@v4
+        with:
+          repository: safal207/Lifetra
+          ref: 61b9d7ecdb59cea5a7b89675fdf5bd8c49bd6b55
+          path: _deps/Lifetra
+
+      - name: Require gofmt
+        run: |
+          files="$(find . -path './_deps' -prune -o -name '*.go' -print)"
+          unformatted="$(gofmt -l -- $files)"
+          if [ -n "$unformatted" ]; then
+            echo "Go files require gofmt:" >&2
+            echo "$unformatted" >&2
+            gofmt -d -- $unformatted
+            exit 1
+          fi
+
+      - name: Go unit tests
+        run: go test ./...
+
+      - name: Build persistent Lifetra station
+        run: cargo build --release --manifest-path _deps/Lifetra/Cargo.toml --example metro_station_server
+
+      - name: Benchmark warm persistent station
+        run: |
+          go run ./cmd/persistent-station-bench \
+            -station-bin ./_deps/Lifetra/target/release/examples/metro_station_server \
+            -iterations 200 > persistent-station-proof.json
+          grep -q '"persistent_pid_reused": true' persistent-station-proof.json
+          grep -q '"verdict": "PASS"' persistent-station-proof.json
+          cat persistent-station-proof.json
+
+      - name: Upload benchmark proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: persistent-station-v0.3-proof
+          path: persistent-station-proof.json
