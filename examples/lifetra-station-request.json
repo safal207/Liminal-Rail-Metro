@@ -1,0 +1,61 @@
+{
+  "protocol": "lifetra.station.request.v0.1",
+  "observation": {
+    "protocol": "lifetra.observation.v0.1",
+    "observation_id": "observation-action-demo-001",
+    "action_id": "action-demo-001",
+    "receipt_id": "receipt-action-demo-001",
+    "receipt_status": "SUCCEEDED",
+    "receipt_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "hash_algorithm": "sha256",
+    "proof_refs": [
+      "metro-receipt://receipt-action-demo-001"
+    ],
+    "observed_at": "2026-09-16T13:30:00Z"
+  },
+  "observed_epoch_seconds": 1789565400,
+  "decided_at": "2026-09-16T13:30:01Z",
+  "intended_orientation": {
+    "growth": 0.8,
+    "stability": 0.5,
+    "truth": 0.8,
+    "connection": 0.5
+  },
+  "observed_orientation": {
+    "growth": 0.6,
+    "stability": 0.5,
+    "truth": 0.8,
+    "connection": 0.5
+  },
+  "correction": {
+    "gain": 0.5,
+    "engage_threshold": 0.1,
+    "release_threshold": 0.05,
+    "max_step": 0.1
+  },
+  "safety": {
+    "autonomy": "bounded_automatic",
+    "min_proof_refs": 1,
+    "quorum_required": 0,
+    "require_human_approval": false,
+    "max_autonomous_adjustment": 0.1,
+    "hard_max_adjustment": 0.25
+  },
+  "authority_context": {
+    "human_approval": "unknown",
+    "quorum_approvals": 0
+  },
+  "next_action": {
+    "action_id": "action-demo-002",
+    "goal": "Verify the corrected implementation",
+    "kind": "qa.verify",
+    "inputs": {
+      "artifact_ref": "memory://demo/code-adapter.go"
+    },
+    "allowed_targets": [
+      "qa-agent"
+    ],
+    "timeout_ms": 5000,
+    "side_effect": false
+  }
+}
