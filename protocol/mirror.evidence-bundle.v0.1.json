@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:liminal-rail:mirror.evidence-bundle:v0.1",
+  "title": "Liminal Rail Mirror Evidence Bundle v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "claim_id",
+    "action_id",
+    "artifacts",
+    "bundle_hash"
+  ],
+  "properties": {
+    "protocol": {
+      "const": "mirror.evidence-bundle.v0.1"
+    },
+    "claim_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "action_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "hash_algorithm", "digest", "ref"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "metro.packet",
+              "metro.route",
+              "effect.result",
+              "metro.receipt",
+              "mirror.authority-policy",
+              "mirror.proof-envelope",
+              "mirror.replay-report"
+            ]
+          },
+          "hash_algorithm": {
+            "const": "sha256"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "ref": {
+            "type": "string",
+            "pattern": "^cas://sha256/[a-f0-9]{64}$"
+          }
+        }
+      }
+    },
+    "bundle_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}
