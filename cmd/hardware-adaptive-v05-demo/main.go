@@ -33,33 +33,33 @@ type trial struct {
 }
 
 type signedProofFlags struct {
-	RootSignatureVerified          bool `json:"root_signature_verified"`
-	PreRotationNewActionRejected   bool `json:"pre_rotation_new_action_rejected"`
-	PreRotationChangedJournal      bool `json:"pre_rotation_changed_journal"`
-	RotationVerified               bool `json:"rotation_verified"`
-	RotationAnchorMatched          bool `json:"rotation_anchor_matched"`
-	MissingRotationRejected        bool `json:"missing_rotation_rejected"`
-	TamperedRotationRejected       bool `json:"tampered_rotation_rejected"`
-	UnanchoredSelfSignedRejected   bool `json:"unanchored_self_signed_rejected"`
-	IssuerKeyRotated               bool `json:"issuer_key_rotated"`
-	NewlyAuthorizedActionExecuted  bool `json:"newly_authorized_action_executed"`
-	RestartStatePreserved          bool `json:"restart_state_preserved"`
-	SignedProofRefsPresent         bool `json:"signed_proof_refs_present"`
+	RootSignatureVerified         bool `json:"root_signature_verified"`
+	PreRotationNewActionRejected  bool `json:"pre_rotation_new_action_rejected"`
+	PreRotationChangedJournal     bool `json:"pre_rotation_changed_journal"`
+	RotationVerified              bool `json:"rotation_verified"`
+	RotationAnchorMatched         bool `json:"rotation_anchor_matched"`
+	MissingRotationRejected       bool `json:"missing_rotation_rejected"`
+	TamperedRotationRejected      bool `json:"tampered_rotation_rejected"`
+	UnanchoredSelfSignedRejected  bool `json:"unanchored_self_signed_rejected"`
+	IssuerKeyRotated              bool `json:"issuer_key_rotated"`
+	NewlyAuthorizedActionExecuted bool `json:"newly_authorized_action_executed"`
+	RestartStatePreserved         bool `json:"restart_state_preserved"`
+	SignedProofRefsPresent        bool `json:"signed_proof_refs_present"`
 }
 
 type proof struct {
-	Protocol      string                    `json:"protocol"`
-	Environment   adaptive.HostState        `json:"environment"`
-	Root          adaptive.AuthorityTrustRoot `json:"trust_root"`
-	AuthorityChain adaptive.AuthorityChain  `json:"authority_chain"`
-	Rotation      adaptive.AuthorityRotation `json:"rotation"`
-	Epoch1Journal string                    `json:"epoch1_journal"`
-	Epoch2Journal string                    `json:"epoch2_journal"`
-	NewAction     string                    `json:"newly_authorized_action"`
-	Epoch1Trials  []trial                   `json:"epoch1_trials"`
-	Epoch2Trials  []trial                   `json:"epoch2_trials"`
-	Flags         signedProofFlags          `json:"flags"`
-	Claim         string                    `json:"claim"`
+	Protocol       string                      `json:"protocol"`
+	Environment    adaptive.HostState          `json:"environment"`
+	Root           adaptive.AuthorityTrustRoot `json:"trust_root"`
+	AuthorityChain adaptive.AuthorityChain     `json:"authority_chain"`
+	Rotation       adaptive.AuthorityRotation  `json:"rotation"`
+	Epoch1Journal  string                      `json:"epoch1_journal"`
+	Epoch2Journal  string                      `json:"epoch2_journal"`
+	NewAction      string                      `json:"newly_authorized_action"`
+	Epoch1Trials   []trial                     `json:"epoch1_trials"`
+	Epoch2Trials   []trial                     `json:"epoch2_trials"`
+	Flags          signedProofFlags            `json:"flags"`
+	Claim          string                      `json:"claim"`
 }
 
 func main() {
