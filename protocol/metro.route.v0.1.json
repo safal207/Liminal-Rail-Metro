@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:liminal-rail:metro.route:v0.1",
+  "title": "Liminal Rail Metro Route v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "route_id",
+    "action_id",
+    "router_id",
+    "decision_mode",
+    "selected_target",
+    "decided_at"
+  ],
+  "properties": {
+    "protocol": {
+      "const": "metro.route.v0.1"
+    },
+    "route_id": {
+      "type": "string",
+      "minLength": 8
+    },
+    "action_id": {
+      "type": "string",
+      "minLength": 8,
+      "description": "Must match the packet action_id."
+    },
+    "router_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "decision_mode": {
+      "type": "string",
+      "enum": ["deterministic", "policy", "model", "human"]
+    },
+    "selected_target": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Must be one of the packet allowed_targets."
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target"],
+        "properties": {
+          "target": {
+            "type": "string",
+            "minLength": 1
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Optional calibrated confidence when the routing mechanism provides one."
+    },
+    "policy_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "decided_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}
