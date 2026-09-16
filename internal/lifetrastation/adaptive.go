@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/safal207/Liminal-Rail-Metro/internal/lifetrabridge"
@@ -75,7 +76,7 @@ type AdaptivePool struct {
 	config   AdaptivePoolConfig
 	stations []*adaptiveStation
 
-	mu     chan struct{}
+	mu     sync.Mutex
 	seen   map[string]struct{}
 	cursor int
 }
@@ -129,22 +130,11 @@ func newAdaptivePoolFromStations(
 	for _, station := range stations {
 		states = append(states, &adaptiveStation{station: station})
 	}
-	lock := make(chan struct{}, 1)
-	lock <- struct{}{}
 	return &AdaptivePool{
 		config:   config,
 		stations: states,
-		mu:       lock,
 		seen:     make(map[string]struct{}),
 	}
-}
-
-func (pool *AdaptivePool) lock() {
-	<-pool.mu
-}
-
-func (pool *AdaptivePool) unlock() {
-	pool.mu <- struct{}{}
 }
 
 func (pool *AdaptivePool) Evaluate(
@@ -171,8 +161,8 @@ func (pool *AdaptivePool) Evaluate(
 }
 
 func (pool *AdaptivePool) reserve(requestID string) (*adaptiveStation, error) {
-	pool.lock()
-	defer pool.unlock()
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
 
 	if len(pool.stations) == 0 {
 		return nil, errors.New("adaptive station pool is empty")
@@ -256,8 +246,8 @@ func (pool *AdaptivePool) backpressureLocked() error {
 }
 
 func (pool *AdaptivePool) finish(state *adaptiveStation, elapsed time.Duration, evaluateErr error) {
-	pool.lock()
-	defer pool.unlock()
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
 
 	if state.inFlight > 0 {
 		state.inFlight--
@@ -277,8 +267,8 @@ func (pool *AdaptivePool) finish(state *adaptiveStation, elapsed time.Duration, 
 }
 
 func (pool *AdaptivePool) Snapshots() []StationSnapshot {
-	pool.lock()
-	defer pool.unlock()
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
 
 	snapshots := make([]StationSnapshot, 0, len(pool.stations))
 	for _, state := range pool.stations {
@@ -305,10 +295,10 @@ func (pool *AdaptivePool) PIDs() []int {
 }
 
 func (pool *AdaptivePool) Close() error {
-	pool.lock()
+	pool.mu.Lock()
 	stations := append([]*adaptiveStation(nil), pool.stations...)
 	pool.stations = nil
-	pool.unlock()
+	pool.mu.Unlock()
 
 	var firstErr error
 	for _, state := range stations {
