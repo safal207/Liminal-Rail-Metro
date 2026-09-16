@@ -15,9 +15,9 @@ const (
 )
 
 type Requirements struct {
-	ExternalIdentity         bool `json:"external_identity"`
-	PortablePublication     bool `json:"portable_publication"`
-	HardwareBacked          bool `json:"hardware_backed"`
+	ExternalIdentity          bool `json:"external_identity"`
+	PortablePublication       bool `json:"portable_publication"`
+	HardwareBacked            bool `json:"hardware_backed"`
 	RemoteHardwareAttestation bool `json:"remote_hardware_attestation"`
 }
 
@@ -79,13 +79,13 @@ func (p Policy) Validate() error {
 }
 
 type EvidenceInput struct {
-	ExternalIdentityVerified  bool
+	ExternalIdentityVerified    bool
 	PortablePublicationVerified bool
-	HardwareBacked            bool
-	RemoteHardwareAttestation bool
-	SourceProofHash            string
-	DiscoveryHash              string
-	PortableProofHash          string
+	HardwareBacked              bool
+	RemoteHardwareAttestation   bool
+	SourceProofHash             string
+	DiscoveryHash               string
+	PortableProofHash           string
 }
 
 type Evidence struct {
@@ -94,10 +94,10 @@ type Evidence struct {
 	PortablePublicationVerified bool   `json:"portable_publication_verified"`
 	HardwareBacked              bool   `json:"hardware_backed"`
 	RemoteHardwareAttestation   bool   `json:"remote_hardware_attestation"`
-	SourceProofHash              string `json:"source_proof_hash"`
-	DiscoveryHash                string `json:"discovery_hash,omitempty"`
-	PortableProofHash            string `json:"portable_proof_hash,omitempty"`
-	EvidenceHash                 string `json:"evidence_hash"`
+	SourceProofHash             string `json:"source_proof_hash"`
+	DiscoveryHash               string `json:"discovery_hash,omitempty"`
+	PortableProofHash           string `json:"portable_proof_hash,omitempty"`
+	EvidenceHash                string `json:"evidence_hash"`
 }
 
 type evidenceMaterial struct {
@@ -106,9 +106,9 @@ type evidenceMaterial struct {
 	PortablePublicationVerified bool   `json:"portable_publication_verified"`
 	HardwareBacked              bool   `json:"hardware_backed"`
 	RemoteHardwareAttestation   bool   `json:"remote_hardware_attestation"`
-	SourceProofHash              string `json:"source_proof_hash"`
-	DiscoveryHash                string `json:"discovery_hash,omitempty"`
-	PortableProofHash            string `json:"portable_proof_hash,omitempty"`
+	SourceProofHash             string `json:"source_proof_hash"`
+	DiscoveryHash               string `json:"discovery_hash,omitempty"`
+	PortableProofHash           string `json:"portable_proof_hash,omitempty"`
 }
 
 func NewEvidence(in EvidenceInput) (Evidence, error) {
@@ -118,9 +118,9 @@ func NewEvidence(in EvidenceInput) (Evidence, error) {
 		PortablePublicationVerified: in.PortablePublicationVerified,
 		HardwareBacked:              in.HardwareBacked,
 		RemoteHardwareAttestation:   in.RemoteHardwareAttestation,
-		SourceProofHash:              in.SourceProofHash,
-		DiscoveryHash:                in.DiscoveryHash,
-		PortableProofHash:            in.PortableProofHash,
+		SourceProofHash:             in.SourceProofHash,
+		DiscoveryHash:               in.DiscoveryHash,
+		PortableProofHash:           in.PortableProofHash,
 	}
 	if err := e.validateMaterial(); err != nil {
 		return Evidence{}, err
@@ -140,9 +140,9 @@ func (e Evidence) material() evidenceMaterial {
 		PortablePublicationVerified: e.PortablePublicationVerified,
 		HardwareBacked:              e.HardwareBacked,
 		RemoteHardwareAttestation:   e.RemoteHardwareAttestation,
-		SourceProofHash:              e.SourceProofHash,
-		DiscoveryHash:                e.DiscoveryHash,
-		PortableProofHash:            e.PortableProofHash,
+		SourceProofHash:             e.SourceProofHash,
+		DiscoveryHash:               e.DiscoveryHash,
+		PortableProofHash:           e.PortableProofHash,
 	}
 }
 
