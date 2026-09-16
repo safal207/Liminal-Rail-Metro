@@ -4,133 +4,116 @@
 
 > Agents think. Liminal Rail moves.
 
-Liminal Rail Metro is an experimental open protocol and Go engine for moving bounded AI-agent actions across specialized agents and tools with explicit routing, stable action identity, bounded admission, and verifiable execution receipts.
+Liminal Rail Metro is an experimental open protocol and Go engine for moving bounded AI-agent actions across specialized agents and tools with explicit semantic choice, traffic control, stable action identity, and verifiable execution receipts.
 
 The project starts from one narrow question:
 
-> Can one agent hand off one bounded action to another agent through a router, without re-sending unnecessary context, while preserving enough identity and evidence to verify what actually executed?
+> Can one agent hand off one bounded action to another agent quickly, without re-sending unnecessary context, while preserving enough identity and evidence to know what was chosen, what was authorized, and what actually executed?
+
+## Current architecture
+
+```text
+Deep planner / bounded Metro Packet
+              |
+              v
++-----------------------------+
+| Fast Decision Plane / Go    |
+| bounded typed choices       |
+| confidence + probability    |
++-------------+---------------+
+              |
+       AUTO_ROUTE only
+              v
++-----------------------------+
+| Adaptive Metro / Go         |
+| backpressure + EWMA routing |
++-------------+---------------+
+              |
+              v
++-----------------------------+
+| Lifetra Station / Rust      |
+| trajectory + authority      |
++-------------+---------------+
+              |
+              v
+        Execution Receipt
+```
+
+The layers deliberately have different jobs:
+
+- **Fast Decision Plane** — chooses among already-bounded semantic options; it cannot invent authority.
+- **Metro transport/traffic layer** — correlates concurrent requests, applies backpressure, and selects an available station.
+- **Lifetra** — carries trajectory/proof semantics and authority decisions.
+- **Receipt layer** — records what actually executed; a route or permission is not execution proof.
 
 ## Engine
 
 **Go is the primary runtime for Liminal Rail Metro.**
 
-The engine is intentionally designed around Go's strengths for this problem: lightweight concurrency, networking, predictable deployment, small binaries, and a strong standard library.
+Go owns the hot transport/decision path: lightweight concurrency, process/network boundaries, traffic admission, routing, validation, and small deployable binaries. Lifetra remains a separate Rust reflective/control layer.
 
 Current layout:
 
 ```text
-cmd/metro-demo/                  executable Metro proof
-cmd/lifetra-bridge-demo/         typed bridge proof
+cmd/metro-demo/                  Metro protocol proof
+cmd/lifetra-bridge-demo/         typed Lifetra bridge proof
 cmd/rail-loop-demo/              real Go -> Rust -> Go loop
-cmd/persistent-station-bench/    warm-path station benchmark
-cmd/multiplex-station-bench/     concurrent request-correlation benchmark
-cmd/adaptive-routing-bench/      admission/backpressure benchmark
-internal/metro/                  Go protocol engine
+cmd/persistent-station-bench/    v0.3 warm-path benchmark
+cmd/multiplex-station-bench/     v0.4 correlation/concurrency benchmark
+cmd/adaptive-routing-bench/      v0.5 backpressure benchmark
+cmd/fast-decision-demo/          v0.6 semantic-choice proof
+cmd/fast-decision-bench/         v0.6 local gate benchmark
+internal/metro/                  packet/route/receipt engine
+internal/decisionplane/          bounded System-One-shaped provider/gate
 internal/lifetrabridge/          proof/control contracts
-internal/lifetrastation/         process, multiplex, pool and adaptive routing boundaries
+internal/lifetrastation/         process, multiplex, pool and adaptive routing
 protocol/                        JSON protocol schemas
-examples/                        protocol journeys
 docs/                            architecture and claim ceilings
 ```
 
-## v0.1 protocol seed
+## v0.1 — Protocol seed
 
-The first version intentionally stays small:
+The first version established three boundaries:
 
-1. A **packet** describes one bounded action.
-2. A **route decision** selects the next execution target from allowed targets.
-3. The target executes the action.
-4. A **receipt** records what executed and binds the result back to the original action.
-5. An optional **Lifetra bridge** turns execution evidence into an observation and only an authorized Lifetra decision back into a new Metro packet.
+1. **Packet** — one bounded action.
+2. **Route** — a target selected only from allowed targets.
+3. **Receipt** — evidence bound back to the original action.
 
 ```text
-Research Agent
-      |
-      v
-+-------------+
-| Metro Gate  |
-+-------------+
-      |
-      v
-+-------------+
-| Fast Router |
-+-------------+
-      |
-      v
-+-------------+
-| Code Agent  |
-+-------------+
-      |
-      v
-Execution Receipt
-      |
-      v
-+------------------+
-| Lifetra Control  |
-+------------------+
-      |
-      v
-Next Metro Packet
+Packet -> Route -> Execute -> Receipt
 ```
 
-## v0.2 E2E Rail Loop
+Every logical action receives an `action_id` before dispatch. Completion uncertainty is represented explicitly rather than being silently converted into success or a blind retry.
 
-v0.2 adds the first real cross-runtime control loop:
+## v0.2 — Go -> Rust -> Go control loop
+
+v0.2 connected Metro to the real Lifetra authority path:
 
 ```text
 Go Metro
-  -> packet
-  -> route
-  -> bounded execution
-  -> receipt
-  -> observation
+  -> packet / route / receipt
+  -> Lifetra observation
   -> Rust Lifetra Station
   -> DecisionAuthority
   -> decision JSON
   -> Go binding validation
   -> ALLOW only
   -> next Metro packet
-  -> next Metro route
 ```
 
-The Rust side runs as an external process over JSON stdin/stdout. Go does not blindly accept its output: the returned decision must remain bound to the same observation, prior action, and receipt. `BLOCK` and `REQUIRE_APPROVAL` are not dispatch authority and cannot carry an executable next action through this boundary.
+Go does not blindly trust the Rust output. Observation, prior action, receipt, and authority provenance are rebound before a new packet may exist. `BLOCK` and `REQUIRE_APPROVAL` cannot masquerade as dispatch authority.
 
-Run it with a Lifetra checkout:
-
-```bash
-go run ./cmd/rail-loop-demo -lifetra-dir ../Lifetra
-```
-
-v0.2 CI pins the Lifetra station to merge commit `80fc633e00c863aeb6505f008c43840ca6445579` so the proof cannot silently change when Lifetra evolves.
-
-## v0.3 Persistent Lifetra Station
-
-v0.3 removes per-decision Rust process startup from the control path.
+The Lifetra station proof is pinned to merge commit:
 
 ```text
-Go Metro
-   |
-   | request #1
-   v
-+---------------------------+
-| persistent Lifetra / Rust |
-| same PID                  |
-+---------------------------+
-   |
-   | decision #1
-   v
-Go validates binding
-   |
-   | request #2
-   v
-same Rust PID
+80fc633e00c863aeb6505f008c43840ca6445579
 ```
 
-The station uses one NDJSON request and one NDJSON response per line. The Go client deliberately serializes requests in v0.3.
+## v0.3 — Persistent Lifetra station
 
-Persistent-station CI pins Lifetra to merge commit `61b9d7ecdb59cea5a7b89675fdf5bd8c49bd6b55` and builds the Rust station as a release binary before measuring warm local-process round trips.
+v0.3 removed one Rust process spawn per decision. One NDJSON station stays alive and handles sequential requests on the same PID.
 
-One CI run over 200 sequential warm decisions produced:
+A CI run over 200 warm local decisions reported:
 
 ```text
 process start       498 us
@@ -144,43 +127,46 @@ derived sequential rate ~11,675 decisions/s
 same Rust PID      200/200 decisions
 ```
 
-These numbers describe only the local deterministic Go -> NDJSON -> Lifetra Rust control decision -> NDJSON -> Go validation boundary. They are **not** LLM inference, network, distributed-agent, or end-to-end task throughput measurements.
+These are local deterministic Go <-> Rust control-plane measurements, not LLM or distributed-agent throughput.
 
-## v0.4 Request-correlated multiplex rail
+Persistent Lifetra is pinned to:
 
-v0.4 allows multiple requests to be in flight at the same time without making response order part of the contract.
+```text
+61b9d7ecdb59cea5a7b89675fdf5bd8c49bd6b55
+```
+
+## v0.4 — Request-correlated multiplex rail
+
+v0.4 lets many control requests be in flight while responses may finish out of order:
 
 ```text
 req-101 ---+
 req-102 ---+--> persistent Lifetra workers
 req-103 ---+              |
-                         responses may finish out of order
-                              |
-                              v
-                       request_id correlation
-                              |
-                              v
-                       original Go caller
+                         responses
+                            |
+                            v
+                     request_id map
+                            |
+                            v
+                     original caller
 ```
 
-`request_id` is transport correlation, not execution identity. The inner `action_id`, observation, receipt and Lifetra authority bindings are still validated after correlation.
+`request_id` is transport correlation, not action identity. The inner `action_id`, observation, receipt, and authority bindings remain separately validated.
 
-Key boundaries:
+The Go race detector found and helped fix a real concurrent stderr-buffer race during development. Final v0.4 CI requires `go test -race ./internal/lifetrastation`.
 
-- one stdout reader dispatches responses through a pending-request table;
-- duplicate request IDs are rejected for the lifetime of both the Go client and Rust station;
-- an unknown or unbound response ID fails the station closed;
-- late responses for caller-abandoned control requests cannot be rebound to another request;
-- a pool can spread traffic across multiple persistent Rust PIDs;
-- `go test -race ./internal/lifetrastation` is a required CI gate.
+The benchmark showed the expected queueing trade-off: throughput grew with concurrency, but tail latency rose near saturation. With four persistent Rust PIDs and concurrency 64, one CI run observed about `27.6k` local control decisions/s with p50 around `1.77 ms`; this remains a local control-plane result only.
 
-Lifetra multiplex support is pinned to merge commit `b8f1ff5ba4de78d3ab618c0886c5b528d40be15e`.
+Multiplex Lifetra is pinned to:
 
-The v0.4 matrix demonstrated that increasing concurrency raises throughput until queue pressure dominates tail latency. It motivated the next bead: explicit admission instead of letting internal queues grow without a Metro-level bound.
+```text
+b8f1ff5ba4de78d3ab618c0886c5b528d40be15e
+```
 
-## v0.5 Adaptive backpressure and load-aware routing
+## v0.5 — Adaptive backpressure and load-aware routing
 
-v0.5 adds a separate `AdaptivePool`; the v0.4 round-robin pool stays unchanged as a control path.
+v0.5 adds a separate `AdaptivePool`; the v0.4 round-robin pool remains available as a control path.
 
 ```text
 caller
@@ -191,66 +177,180 @@ Adaptive admission
   +-- all stations at cap --> ErrBackpressure (no dispatch)
   |
   v
-score available stations
+score stations
 (in_flight + 1) * EWMA service latency
   |
   v
 selected persistent Lifetra station
-  |
-  v
-request-correlated decision
 ```
 
 Important semantics:
 
 - each station has a hard `MaxInFlightPerStation` cap;
-- backpressure happens **before dispatch**, so the rejected attempt does not consume `request_id` and may be retried later;
-- once admitted, `request_id` becomes lifetime-unique and an execution error is **not** automatically rerouted or retried;
-- every station receives one cold exploration sample before measured latency affects routing;
-- snapshots expose in-flight count, completed/error counts, EWMA service latency and estimated delay;
-- an integration test uses two real child processes (one deliberately +5 ms slower) and verifies that after cold exploration subsequent sequential work is routed to the faster station;
-- unit tests and the Go race detector pass on the same v0.5 head.
+- backpressure occurs **before dispatch**, so a rejected request ID can be retried later;
+- once admitted, the request ID is lifetime-unique and an execution error is not automatically rerouted;
+- every station receives a cold sample before measured latency affects routing;
+- snapshots expose in-flight count, completed/errors, EWMA latency, and estimated delay;
+- a real two-process test makes one station deliberately `+5 ms` slower and verifies that subsequent work moves to the faster station.
 
-### Bounded-load proof
+One CI run used four Rust PIDs, 16 workers/PID, 64 callers, and 1,024 completed requests per scenario:
 
-One CI run used four persistent Rust PIDs, 16 Rust workers per PID, 64 concurrent Go callers and 1,024 completed requests per scenario:
-
-| Per-station cap | Total capacity | Backpressure events | Service p50 | Service p95 | E2E p95 | Throughput |
+| Cap / PID | Total capacity | Backpressure | Service p50 | Service p95 | E2E p95 | Throughput |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 2 | 8 | 6,260 | 439 us | 1.134 ms | 18.715 ms | 15.3k/s |
 | 8 | 32 | 1,122 | 1.277 ms | 2.737 ms | 9.884 ms | 22.6k/s |
 | 16 | 64 | 0 | 2.264 ms | 5.470 ms | 5.471 ms | 23.4k/s |
 
-Every scenario completed `1024/1024` without an execution error. Observed per-station in-flight counts never exceeded the configured cap: `2`, `8`, and `16` respectively.
+All scenarios completed `1024/1024`; observed per-station in-flight counts never exceeded the configured cap.
 
-The important result is **not** that a smaller cap is universally faster. A tight cap protects the internal station service time but transfers waiting to callers. In this workload, cap `2` kept admitted service p50 low while producing a much larger end-to-end tail through repeated backpressure. Cap `16` admitted the full 64-caller workload with no backpressure, but allowed higher internal service latency.
+The result is deliberately not described as a universal speedup:
 
-So v0.5 establishes a measurable control knob:
+> Backpressure bounds internal queue exposure; choosing the bound is a latency/throughput policy decision, not free performance.
 
-> Backpressure bounds internal queue exposure; choosing the right bound is a latency/throughput policy decision, not a free speedup.
+## v0.6 — Bounded Fast Decision Plane
 
-The benchmark intentionally reports service latency separately from end-to-end latency so queueing cannot be hidden by moving it outside the station.
+v0.6 introduces a provider-agnostic **System-One-shaped** semantic decision layer before physical Metro traffic routing.
+
+```text
+Metro Packet
+    |
+    v
+metro.decision.request.v0.1
+    |
+    | packet_hash
+    | state_hash
+    | choices_hash
+    v
+Provider
+ typed probabilities + confidence
+    |
+    v
+Metro validation + policy
+  |          |             |
+  v          v             v
+AUTO       SYSTEM-2      APPROVAL
+  |
+  v
+Metro Route
+```
+
+The provider does **not** receive permission to invent actions or targets. It can only select from choices already bounded by the Metro packet.
+
+Before a route can exist, Metro binds the decision to:
+
+```text
+request_id
++ action_id
++ packet_hash
++ state_hash
++ choices_hash
+```
+
+Metro recomputes packet/state/choice digests when consuming the decision. Post-binding mutation fails closed. Decision state is deep-copied at request creation so caller-side map mutation cannot silently change the state under its digest.
+
+The result must also contain a complete probability distribution over exactly the supplied choices. Unknown choices, disallowed targets, duplicate/incomplete distributions, invalid probability mass, stale packet/state/choices, or a non-max selected choice fail closed.
+
+Default experimental gate policy:
+
+```text
+auto-route confidence >= 0.98
+selected probability   >= 0.98
+minimum top margin     >= 0.15
+side_effect=true       -> REQUIRE_APPROVAL
+```
+
+A deterministic `StaticProvider` exists only as a proof/fallback provider. It is not an AI model.
+
+### v0.6 proof
+
+The CI proof gives the provider the same semantic preference in two separately bound packets:
+
+```text
+research-agent  0.005
+code-agent      0.990
+qa-agent        0.005
+confidence      0.990
+```
+
+For the non-side-effecting packet:
+
+```text
+AUTO_ROUTE -> code-agent
+top margin = 0.985
+```
+
+For a separately hashed packet with `side_effect=true`:
+
+```text
+REQUIRE_APPROVAL
+route = none
+```
+
+The two decisions have different `packet_hash` values. Confidence cannot override the effect policy boundary.
+
+The same runtime head passes:
+
+```text
+gofmt                                        PASS
+go test ./...                                PASS
+go test -race ./internal/decisionplane \
+  ./internal/lifetrastation                  PASS
+bounded AUTO_ROUTE / APPROVAL proof          PASS
+50,000 local decision-plane iterations       PASS
+v0.2 Go -> Rust -> Go regression             PASS
+v0.3 persistent station regression           PASS
+v0.4 multiplex regression                    PASS
+v0.5 adaptive backpressure regression        PASS
+```
+
+One GitHub Actions run over 50,000 local iterations reported:
+
+```text
+completed       50,000 / 50,000
+average         5.631 us
+p50             4.899 us
+p95             9.387 us
+p99            14.567 us
+min             4.659 us
+max           289.253 us
+```
+
+That measured path is only:
+
+```text
+StaticProvider
+  -> normalize probabilities
+  -> packet/state/choices re-hash + validation
+  -> policy gate
+  -> route construction
+```
+
+It is **not** a TypeSafe Jev benchmark, remote-model benchmark, LLM benchmark, Lifetra execution benchmark, or end-to-end agent throughput result.
+
+The provider interface is intentionally suitable for a future fast typed decision adapter, but v0.6 makes **no TypeSafe/Jev API compatibility claim**. See [`docs/fast-decision-plane-v0.6.md`](docs/fast-decision-plane-v0.6.md).
 
 ## Core artifacts
 
 - `protocol/metro.packet.v0.1.json` — bounded action envelope
 - `protocol/metro.route.v0.1.json` — route decision envelope
 - `protocol/metro.receipt.v0.1.json` — execution evidence envelope
-- `protocol/lifetra.observation.v0.1.json` — Metro receipt -> Lifetra observation contract
-- `protocol/lifetra.station.request.v0.1.json` — control-station request contract
-- `protocol/lifetra.decision.v0.1.json` — Lifetra authority decision -> Metro packet contract
+- `protocol/metro.decision.request.v0.1.json` — bounded semantic decision request
+- `protocol/metro.decision.result.v0.1.json` — typed probabilistic decision result
+- `protocol/lifetra.observation.v0.1.json` — Metro receipt -> Lifetra observation
+- `protocol/lifetra.station.request.v0.1.json` — control-station request
+- `protocol/lifetra.decision.v0.1.json` — Lifetra authority decision -> Metro packet
 - `protocol/lifetra.station.request-envelope.v0.2.json` — request correlation envelope
-- `protocol/lifetra.station.response-envelope.v0.2.json` — correlated decision envelope
-- `protocol/lifetra.station.error.v0.2.json` — correlated station error envelope
-- `internal/metro/metro.go` — Go engine core
-- `internal/lifetrabridge/bridge.go` — Go bridge adapter
-- `internal/lifetrastation/process.go` — one-shot external process adapter
-- `internal/lifetrastation/persistent.go` — persistent sequential NDJSON adapter
-- `internal/lifetrastation/multiplex.go` — concurrent request-correlated process and pool
-- `internal/lifetrastation/adaptive.go` — bounded admission and EWMA-informed routing
-- `cmd/persistent-station-bench/main.go` — v0.3 benchmark
-- `cmd/multiplex-station-bench/main.go` — v0.4 multiplex benchmark
-- `cmd/adaptive-routing-bench/main.go` — v0.5 admission/backpressure benchmark
+- `protocol/lifetra.station.response-envelope.v0.2.json` — correlated Lifetra response
+- `protocol/lifetra.station.error.v0.2.json` — correlated station error
+- `internal/metro/metro.go` — Go packet/route/receipt core
+- `internal/decisionplane/decision.go` — provider contract, provenance validation, policy gate
+- `internal/decisionplane/static_provider.go` — deterministic proof/fallback provider
+- `internal/lifetrabridge/` — Lifetra proof/control bridge
+- `internal/lifetrastation/multiplex.go` — concurrent process transport
+- `internal/lifetrastation/adaptive.go` — admission + EWMA routing
+- `cmd/fast-decision-demo/main.go` — AUTO_ROUTE / APPROVAL proof
+- `cmd/fast-decision-bench/main.go` — local Go decision-plane benchmark
+- `docs/fast-decision-plane-v0.6.md` — v0.6 proof and claim ceiling
 
 ## Lifetra bridge
 
@@ -270,32 +370,17 @@ The bridge preserves `UNKNOWN`, rejects `BLOCK` and `REQUIRE_APPROVAL` as dispat
 
 ## Design principles
 
-### 1. Stable action identity
-Every action receives an `action_id` before dispatch. Retries and recovery must refer to the same logical action rather than silently creating a new one.
-
-### 2. Minimal context movement
-Packets should carry only the context required for the next bounded action. Large histories should be referenced, not copied by default.
-
-### 3. Routing is separate from reasoning
-A fast decision layer may choose among already-valid actions or destinations. Deep planning remains the job of a larger reasoning model when needed.
-
-### 4. Execution must produce evidence
-A route decision is not proof of execution. A receipt binds the action, selected target, inputs, and result evidence.
-
-### 5. Fail closed on uncertainty
-If execution identity or completion is uncertain, the system should surface `UNKNOWN` rather than claim success or blindly redispatch a side effect.
-
-### 6. Authority is separate from execution
-A Lifetra `ALLOW` decision can authorize creation of a new Metro packet, but permission is not evidence that the packet was dispatched or that its external effect completed.
-
-### 7. Cross-runtime output is untrusted until rebound
-A station decision must be checked against the observation, action identity, and receipt that caused it before Go can create the next packet.
-
-### 8. Persistence must not weaken the proof boundary
-Keeping Rust alive is a transport optimization only. Each returned decision is validated exactly as if the station had been started for one request.
-
-### 9. Backpressure must happen before ambiguous execution
-A saturated control plane may reject an action before dispatch. Once dispatch may have occurred, timeout or failure cannot be treated as permission to send the logical action elsewhere.
+1. **Stable action identity.** Create `action_id` before dispatch; recovery must not silently create a new logical action.
+2. **Minimal context movement.** Reference large histories/artifacts instead of copying them by default.
+3. **Routing is separate from reasoning.** Deep planning and fast bounded choice are different jobs.
+4. **Execution must produce evidence.** A route is not proof that an effect occurred.
+5. **Fail closed on uncertainty.** `UNKNOWN` is not success, failure, or permission to redispatch.
+6. **Authority is separate from execution.** Permission does not imply dispatch or completion.
+7. **Cross-runtime output is untrusted until rebound.** Returned data must match the evidence/identity that caused it.
+8. **Persistence must not weaken proof.** Reusing a process is an optimization, not a relaxation of validation.
+9. **Backpressure must happen before ambiguous execution.** A saturated request may be refused pre-dispatch; a possibly executed request may not be casually sent elsewhere.
+10. **Semantic choice is bounded, not sovereign.** A fast provider may rank existing choices; it cannot expand allowed actions/targets.
+11. **Decision provenance binds the whole decision context.** Packet, semantic state, and choice set are hashed and revalidated before route creation.
 
 ## Non-goals
 
@@ -303,14 +388,16 @@ This repository does **not** yet claim:
 
 - exactly-once execution across arbitrary distributed systems;
 - cryptographic trust between independent organizations;
-- production-grade scheduling, billing, auth, service discovery or autoscaling;
-- benchmark superiority over existing queues, buses, RPC systems or agent frameworks;
+- production-grade scheduling, billing, auth, discovery, or autoscaling;
+- benchmark superiority over queues, buses, RPC systems, or agent frameworks;
 - autonomous safety for high-risk actions;
 - safe redispatch after an `UNKNOWN` external effect;
 - durable orchestration across Metro process crashes;
 - production RPC between Metro and Lifetra;
 - that one admission cap is optimal across workloads;
-- that local control-plane throughput equals AI-agent or LLM throughput.
+- that local control-plane throughput equals AI-agent or LLM throughput;
+- TypeSafe Jev API compatibility, Jev latency/accuracy, or any remote-model result;
+- that the default `0.98` confidence threshold is universally calibrated.
 
 ## Run the demos and proofs
 
@@ -318,6 +405,18 @@ Metro core:
 
 ```bash
 go run ./cmd/metro-demo
+```
+
+Fast decision proof:
+
+```bash
+go run ./cmd/fast-decision-demo
+```
+
+Local fast-decision overhead benchmark:
+
+```bash
+go run ./cmd/fast-decision-bench -iterations 50000
 ```
 
 Real Go -> Rust -> Go loop:
@@ -353,14 +452,14 @@ Run Go invariants and race checks:
 
 ```bash
 go test ./...
-go test -race ./internal/lifetrastation
+go test -race ./internal/decisionplane ./internal/lifetrastation
 ```
 
 ## Status
 
-`v0.5` — CI-verified request-correlated multiplex transport with race-checked bounded admission, explicit backpressure, EWMA-informed station routing, real slow/fast station avoidance, and separate service versus end-to-end latency evidence.
+`v0.6` — CI-verified bounded fast decision plane with packet/state/choice provenance binding, complete probabilistic-choice validation, System-2 escalation, side-effect approval gating, race-checked transport regressions, and measured local Go gate overhead.
 
-Contributions should preserve the narrow claim ceiling: make the protocol more independently verifiable before making it more ambitious.
+Contributions should preserve the narrow claim ceiling: make each boundary independently verifiable before making the system more ambitious.
 
 ## License
 
