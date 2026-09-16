@@ -9,15 +9,16 @@ import (
 
 // EvidenceFromVerifiedReceipt promotes a Metro receipt into external mirror
 // evidence only after the receipt has been verified against its packet, route,
-// and concrete result.
+// concrete result, claim, and an explicit executor authority policy.
 //
 // The adapter is intentionally fail-closed. A receipt must:
 //   - be bound to the same action as the claim,
 //   - use the expected receipt protocol,
 //   - represent a successful execution,
 //   - carry a durable/non-empty result reference,
-//   - pass metro.Verify(...), and
-//   - bind the verified result hash to the claim value hash.
+//   - pass metro.Verify(...),
+//   - bind the verified result hash to the claim value hash, and
+//   - come from an executor explicitly authoritative for packet.Action.Kind.
 //
 // Only then can it cross the mirror boundary as SourceExternal evidence.
 func EvidenceFromVerifiedReceipt(
@@ -26,6 +27,7 @@ func EvidenceFromVerifiedReceipt(
 	route metro.Route,
 	result map[string]any,
 	receipt metro.Receipt,
+	authority AuthorityPolicy,
 ) (Evidence, error) {
 	if claim.ID == "" || claim.ActionID == "" || claim.ValueHash == "" {
 		return Evidence{}, errors.New("invalid claim: id, action_id and value_hash are required")
@@ -46,6 +48,8 @@ func EvidenceFromVerifiedReceipt(
 		return Evidence{}, errors.New("result_ref is required for external provenance")
 	}
 
+	// Verify structural and cryptographic bindings before consulting executor
+	// metadata for authority. An unverified receipt cannot carry authority.
 	if err := metro.Verify(packet, route, result, receipt); err != nil {
 		return Evidence{}, fmt.Errorf("verify metro receipt: %w", err)
 	}
@@ -54,6 +58,9 @@ func EvidenceFromVerifiedReceipt(
 	}
 	if receipt.ResultHash != claim.ValueHash {
 		return Evidence{}, errors.New("verified receipt result hash does not match claim value hash")
+	}
+	if err := authority.Authorize(packet.Action.Kind, receipt.ExecutorID); err != nil {
+		return Evidence{}, fmt.Errorf("external proof authority rejected: %w", err)
 	}
 
 	return Evidence{
@@ -66,6 +73,7 @@ func EvidenceFromVerifiedReceipt(
 			"receipt://" + receipt.ReceiptID,
 			"route://" + receipt.RouteID,
 			"executor://" + receipt.ExecutorID,
+			authority.Ref(packet.Action.Kind, receipt.ExecutorID),
 			receipt.ResultRef,
 		},
 	}, nil
