@@ -64,6 +64,15 @@ func runVerify(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "decode evidence bundle: %v\n", err)
 		return 1
 	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			fmt.Fprintln(stderr, "decode evidence bundle: trailing JSON value is not allowed")
+		} else {
+			fmt.Fprintf(stderr, "decode evidence bundle trailing content: %v\n", err)
+		}
+		return 1
+	}
 	if err := bundle.Validate(); err != nil {
 		fmt.Fprintf(stderr, "validate evidence bundle: %v\n", err)
 		return 1
