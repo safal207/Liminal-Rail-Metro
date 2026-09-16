@@ -52,7 +52,7 @@ type Decision struct {
 
 // Gate enforces the mirror boundary:
 //
-//   belief != reflection != evidence != verified state
+//	belief != reflection != evidence != verified state
 //
 // A commit requires at least one matching, verified external proof with
 // provenance. For irreversible claims, any bound evidence that disagrees with
