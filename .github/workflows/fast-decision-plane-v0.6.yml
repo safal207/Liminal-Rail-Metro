@@ -1,0 +1,61 @@
+name: Fast Decision Plane v0.6
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  fast-decision-plane:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Liminal Rail Metro
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+
+      - name: Require gofmt
+        run: |
+          unformatted="$(gofmt -l -- $(find . -path './_deps' -prune -o -name '*.go' -print))"
+          if [ -n "$unformatted" ]; then
+            echo "Go files require gofmt:" >&2
+            echo "$unformatted" >&2
+            gofmt -d -- $unformatted
+            exit 1
+          fi
+
+      - name: Go unit tests
+        run: go test ./...
+
+      - name: Go race detector
+        run: go test -race ./internal/decisionplane ./internal/lifetrastation
+
+      - name: Run bounded fast-decision proof
+        run: |
+          go run ./cmd/fast-decision-demo > fast-decision-proof.json
+          grep -q '"verdict": "PASS"' fast-decision-proof.json
+          grep -q '"disposition": "AUTO_ROUTE"' fast-decision-proof.json
+          grep -q '"disposition": "REQUIRE_APPROVAL"' fast-decision-proof.json
+          grep -q '"selected_target": "code-agent"' fast-decision-proof.json
+          cat fast-decision-proof.json
+
+      - name: Benchmark local decision-plane overhead
+        run: |
+          go run ./cmd/fast-decision-bench -iterations 50000 > fast-decision-benchmark.json
+          grep -q '"verdict": "PASS"' fast-decision-benchmark.json
+          grep -q '"completed_without_error": 50000' fast-decision-benchmark.json
+          cat fast-decision-benchmark.json
+
+      - name: Upload fast-decision proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: fast-decision-plane-v0.6-proof
+          path: |
+            fast-decision-proof.json
+            fast-decision-benchmark.json
