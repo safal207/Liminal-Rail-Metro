@@ -140,12 +140,17 @@ func TestPoolRoutesConcurrentRequestsAcrossPersistentProcesses(t *testing.T) {
 }
 
 func muxHelperConfig(mode string) ProcessConfig {
+	return muxHelperConfigWithDelay(mode, 0)
+}
+
+func muxHelperConfigWithDelay(mode string, delay time.Duration) ProcessConfig {
 	return ProcessConfig{
 		Command: os.Args[0],
 		Args:    []string{"-test.run=TestMuxHelperProcess"},
 		Env: []string{
 			"GO_WANT_MUX_HELPER=1",
 			"MUX_HELPER_MODE=" + mode,
+			"MUX_HELPER_DELAY=" + delay.String(),
 		},
 		Timeout: 5 * time.Second,
 	}
@@ -169,6 +174,14 @@ func TestMuxHelperProcess(t *testing.T) {
 	scanner := bufio.NewScanner(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
 	mode := os.Getenv("MUX_HELPER_MODE")
+	delay := time.Duration(0)
+	if raw := os.Getenv("MUX_HELPER_DELAY"); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil {
+			os.Exit(5)
+		}
+		delay = parsed
+	}
 
 	var buffered []RequestEnvelope
 	for scanner.Scan() {
@@ -182,6 +195,9 @@ func TestMuxHelperProcess(t *testing.T) {
 				continue
 			}
 			for index := len(buffered) - 1; index >= 0; index-- {
+				if delay > 0 {
+					time.Sleep(delay)
+				}
 				if err := encoder.Encode(helperResponse(buffered[index], "normal")); err != nil {
 					os.Exit(3)
 				}
@@ -190,6 +206,9 @@ func TestMuxHelperProcess(t *testing.T) {
 			continue
 		}
 
+		if delay > 0 {
+			time.Sleep(delay)
+		}
 		if err := encoder.Encode(helperResponse(envelope, mode)); err != nil {
 			os.Exit(3)
 		}
