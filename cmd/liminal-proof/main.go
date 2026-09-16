@@ -23,6 +23,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "verify":
 		return runVerify(args[1:], stdout, stderr)
+	case "fixture":
+		return runFixture(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		printUsage(stdout)
 		return 0
@@ -105,5 +107,6 @@ func runVerify(args []string, stdout, stderr io.Writer) int {
 
 func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
-	fmt.Fprintln(w, "  liminal-proof verify -bundle <evidence-bundle.json> -cas <cas-root>")
+	fmt.Fprintln(w, "  liminal-proof verify  -bundle <evidence-bundle.json> -cas <cas-root>")
+	fmt.Fprintln(w, "  liminal-proof fixture -out <proof-package-dir>")
 }
