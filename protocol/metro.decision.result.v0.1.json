@@ -9,6 +9,7 @@
     "request_id",
     "action_id",
     "provider_id",
+    "state_hash",
     "choices_hash",
     "selected_choice_id",
     "probabilities",
@@ -30,6 +31,10 @@
     "provider_id": {
       "type": "string",
       "minLength": 1
+    },
+    "state_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
     },
     "choices_hash": {
       "type": "string",
