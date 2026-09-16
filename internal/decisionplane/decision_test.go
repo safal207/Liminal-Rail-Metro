@@ -115,6 +115,36 @@ func TestSideEffectRequiresApprovalRegardlessOfConfidence(t *testing.T) {
 	}
 }
 
+func TestTamperedPacketBindingFailsClosed(t *testing.T) {
+	packet := decisionTestPacket(false)
+	request := mustDecisionRequest(t, packet)
+	decision := NewDecision(request, "system-one-proof", "code", []Probability{
+		{ChoiceID: "research", Probability: 0.005},
+		{ChoiceID: "code", Probability: 0.99},
+		{ChoiceID: "qa", Probability: 0.005},
+	}, 0.99)
+	decision.PacketHash = strings.Repeat("0", 64)
+
+	if _, err := ApplyDecision(packet, request, decision, DefaultGatePolicy()); err == nil {
+		t.Fatal("expected packet_hash mismatch to fail closed")
+	}
+}
+
+func TestMutatedBoundPacketFailsClosed(t *testing.T) {
+	packet := decisionTestPacket(false)
+	request := mustDecisionRequest(t, packet)
+	decision := NewDecision(request, "system-one-proof", "code", []Probability{
+		{ChoiceID: "research", Probability: 0.005},
+		{ChoiceID: "code", Probability: 0.99},
+		{ChoiceID: "qa", Probability: 0.005},
+	}, 0.99)
+	packet.Action.Inputs["scope"] = "changed-after-binding"
+
+	if _, err := ApplyDecision(packet, request, decision, DefaultGatePolicy()); err == nil {
+		t.Fatal("expected post-binding packet mutation to fail closed")
+	}
+}
+
 func TestTamperedStateBindingFailsClosed(t *testing.T) {
 	packet := decisionTestPacket(false)
 	request := mustDecisionRequest(t, packet)
