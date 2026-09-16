@@ -31,6 +31,7 @@ type PersistentProcess struct {
 	scanner *bufio.Scanner
 	stderr  bytes.Buffer
 	closed  bool
+	waited  bool
 }
 
 func (station *PersistentProcess) Start() error {
@@ -136,10 +137,17 @@ func (station *PersistentProcess) Evaluate(ctx context.Context, request lifetrab
 	select {
 	case scanned = <-resultCh:
 	case <-ctx.Done():
+		station.closed = true
+		if station.stdin != nil {
+			_ = station.stdin.Close()
+		}
 		if station.cmd.Process != nil {
 			_ = station.cmd.Process.Kill()
 		}
-		station.closed = true
+		if !station.waited {
+			_ = station.cmd.Wait()
+			station.waited = true
+		}
 		return lifetrabridge.Decision{}, fmt.Errorf("persistent station response: %w", ctx.Err())
 	}
 
@@ -183,14 +191,15 @@ func (station *PersistentProcess) Close() error {
 	if station.cmd == nil {
 		return nil
 	}
-	if station.closed {
+	station.closed = true
+	if station.waited {
 		return nil
 	}
-	station.closed = true
 
 	if station.stdin != nil {
 		_ = station.stdin.Close()
 	}
+	station.waited = true
 	if err := station.cmd.Wait(); err != nil {
 		return fmt.Errorf("wait for persistent station: %w: %s", err, station.stderr.String())
 	}
