@@ -4,11 +4,27 @@
 
 > Agents think. Liminal Rail moves.
 
-Liminal Rail Metro is an experimental open protocol for moving bounded AI-agent actions across specialized agents and tools with explicit routing, stable action identity, and verifiable execution receipts.
+Liminal Rail Metro is an experimental open protocol and Go engine for moving bounded AI-agent actions across specialized agents and tools with explicit routing, stable action identity, and verifiable execution receipts.
 
 The project starts from one narrow question:
 
 > Can one agent hand off one bounded action to another agent through a router, without re-sending unnecessary context, while preserving enough identity and evidence to verify what actually executed?
+
+## Engine
+
+**Go is the primary runtime for Liminal Rail Metro.**
+
+The engine is intentionally designed around Go's strengths for this problem: lightweight concurrency, networking, predictable deployment, small binaries, and a strong standard library.
+
+Current layout:
+
+```text
+cmd/metro-demo/        executable proof
+internal/metro/        Go protocol engine
+protocol/              JSON protocol schemas
+examples/              protocol journeys
+docs/                  architecture and claim ceiling
+```
 
 ## v0.1 scope
 
@@ -52,7 +68,9 @@ Execution Receipt
 - `protocol/metro.route.v0.1.json` — route decision envelope
 - `protocol/metro.receipt.v0.1.json` — execution evidence envelope
 - `examples/research-code-qa.json` — minimal example journey
-- `demo/demo.py` — dependency-free executable demonstration
+- `internal/metro/metro.go` — Go engine core
+- `internal/metro/metro_test.go` — protocol invariant tests
+- `cmd/metro-demo/main.go` — executable Go demonstration
 - `docs/architecture.md` — v0.1 architecture and claim ceiling
 
 ## Design principles
@@ -84,17 +102,23 @@ This repository does **not** yet claim:
 
 The first milestone is only to make the handoff and evidence model explicit, small, and testable.
 
-## Run the demo
+## Run the Go demo
 
 ```bash
-python demo/demo.py
+go run ./cmd/metro-demo
+```
+
+Run the invariant tests:
+
+```bash
+go test ./...
 ```
 
 The demo creates a packet, makes a deterministic route choice from allowed targets, executes a toy bounded action, and emits a receipt whose hashes can be independently recomputed.
 
 ## Status
 
-`v0.1` — protocol seed / experimental.
+`v0.1` — protocol seed / experimental Go engine.
 
 Contributions should preserve the narrow claim ceiling: make the protocol more independently verifiable before making it more ambitious.
 
