@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	SignedAuthorityProtocol  = "liminal.adaptive.signed-authority.v0.1"
+	SignedAuthorityProtocol   = "liminal.adaptive.signed-authority.v0.1"
 	AuthorityRotationProtocol = "liminal.adaptive.authority-rotation.v0.1"
-	AuthorityChainProtocol   = "liminal.adaptive.authority-chain.v0.1"
+	AuthorityChainProtocol    = "liminal.adaptive.authority-chain.v0.1"
 	SignatureAlgorithmEd25519 = "ed25519"
 )
 
@@ -26,15 +26,15 @@ const (
 // AuthorityGrant. The signature is not trusted merely because it verifies;
 // trust comes from a pinned AuthorityTrustRoot plus an explicit rotation chain.
 type SignedAuthorityGrant struct {
-	Protocol             string         `json:"protocol"`
-	Grant                AuthorityGrant `json:"grant"`
-	IssuerID             string         `json:"issuer_id"`
-	IssuerKeyID          string         `json:"issuer_key_id"`
-	IssuerPublicKey      string         `json:"issuer_public_key_base64"`
-	SignatureAlgorithm   string         `json:"signature_algorithm"`
-	IssuedAt             string         `json:"issued_at"`
-	Signature            string         `json:"signature_base64"`
-	SignedAuthorityHash  string         `json:"signed_authority_hash"`
+	Protocol            string         `json:"protocol"`
+	Grant               AuthorityGrant `json:"grant"`
+	IssuerID            string         `json:"issuer_id"`
+	IssuerKeyID         string         `json:"issuer_key_id"`
+	IssuerPublicKey     string         `json:"issuer_public_key_base64"`
+	SignatureAlgorithm  string         `json:"signature_algorithm"`
+	IssuedAt            string         `json:"issued_at"`
+	Signature           string         `json:"signature_base64"`
+	SignedAuthorityHash string         `json:"signed_authority_hash"`
 }
 
 type signedAuthorityMaterial struct {
@@ -211,24 +211,24 @@ func (r AuthorityTrustRoot) Validate() error {
 // AuthorityRotation is signed by the currently trusted issuer and explicitly
 // commits to the next authority content and next issuer key identity.
 type AuthorityRotation struct {
-	Protocol                 string `json:"protocol"`
-	AuthorityID              string `json:"authority_id"`
-	FromEpoch                string `json:"from_epoch"`
-	ToEpoch                  string `json:"to_epoch"`
-	FromAuthorityHash        string `json:"from_authority_hash"`
-	ToAuthorityHash          string `json:"to_authority_hash"`
-	FromSignedAuthorityHash  string `json:"from_signed_authority_hash"`
-	ToSignedAuthorityHash    string `json:"to_signed_authority_hash"`
-	SourceJournalSequence    uint64 `json:"source_journal_sequence"`
-	SourceJournalHead        string `json:"source_journal_head,omitempty"`
-	FromIssuerID             string `json:"from_issuer_id"`
-	FromIssuerKeyID          string `json:"from_issuer_key_id"`
-	ToIssuerID               string `json:"to_issuer_id"`
-	ToIssuerKeyID            string `json:"to_issuer_key_id"`
-	IssuedAt                 string `json:"issued_at"`
-	SignatureAlgorithm       string `json:"signature_algorithm"`
-	Signature                string `json:"signature_base64"`
-	RotationHash             string `json:"rotation_hash"`
+	Protocol                string `json:"protocol"`
+	AuthorityID             string `json:"authority_id"`
+	FromEpoch               string `json:"from_epoch"`
+	ToEpoch                 string `json:"to_epoch"`
+	FromAuthorityHash       string `json:"from_authority_hash"`
+	ToAuthorityHash         string `json:"to_authority_hash"`
+	FromSignedAuthorityHash string `json:"from_signed_authority_hash"`
+	ToSignedAuthorityHash   string `json:"to_signed_authority_hash"`
+	SourceJournalSequence   uint64 `json:"source_journal_sequence"`
+	SourceJournalHead       string `json:"source_journal_head,omitempty"`
+	FromIssuerID            string `json:"from_issuer_id"`
+	FromIssuerKeyID         string `json:"from_issuer_key_id"`
+	ToIssuerID              string `json:"to_issuer_id"`
+	ToIssuerKeyID           string `json:"to_issuer_key_id"`
+	IssuedAt                string `json:"issued_at"`
+	SignatureAlgorithm      string `json:"signature_algorithm"`
+	Signature               string `json:"signature_base64"`
+	RotationHash            string `json:"rotation_hash"`
 }
 
 type authorityRotationMaterial struct {
@@ -537,9 +537,15 @@ func (l *ChainedAuthorityLearner) Chain() AuthorityChain { return cloneAuthority
 func (l *ChainedAuthorityLearner) CurrentSignedGrant() SignedAuthorityGrant {
 	return cloneSignedAuthority(l.chain.Grants[len(l.chain.Grants)-1])
 }
-func (l *ChainedAuthorityLearner) Choose(ctx Context) (ContextDecision, error) { return l.learner.Choose(ctx) }
-func (l *ChainedAuthorityLearner) SnapshotContext(ctx Context) (map[string]ActionStat, error) { return l.learner.SnapshotContext(ctx) }
-func (l *ChainedAuthorityLearner) BestObserved(ctx Context) (string, ActionStat, bool, error) { return l.learner.BestObserved(ctx) }
+func (l *ChainedAuthorityLearner) Choose(ctx Context) (ContextDecision, error) {
+	return l.learner.Choose(ctx)
+}
+func (l *ChainedAuthorityLearner) SnapshotContext(ctx Context) (map[string]ActionStat, error) {
+	return l.learner.SnapshotContext(ctx)
+}
+func (l *ChainedAuthorityLearner) BestObserved(ctx Context) (string, ActionStat, bool, error) {
+	return l.learner.BestObserved(ctx)
+}
 func (l *ChainedAuthorityLearner) JournalHead() (uint64, string) { return l.learner.JournalHead() }
 
 func (l *ChainedAuthorityLearner) Apply(receipt metro.Receipt, result map[string]any, exp Experience) (ApplyResult, error) {
