@@ -23,11 +23,11 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Checkout request-correlated Lifetra station
+      - name: Checkout proven request-correlated Lifetra station
         uses: actions/checkout@v4
         with:
           repository: safal207/Lifetra
-          ref: 6c6cb0ec707a0f0ca3315015eba1f4b934c9bffd
+          ref: b8f1ff5ba4de78d3ab618c0886c5b528d40be15e
           path: _deps/Lifetra
 
       - name: Require gofmt
