@@ -1,0 +1,59 @@
+name: Hardware Adaptive v0.4
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  authority-bound-proof:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Unit tests
+        run: go test ./...
+
+      - name: Run authority-bound adaptive proof
+        run: go run ./cmd/hardware-adaptive-v04-demo
+
+      - name: Verify proof invariants
+        run: |
+          python3 - <<'PY'
+          import json
+
+          with open('hardware-adaptive-proof-v0.4.json', 'r', encoding='utf-8') as f:
+              p = json.load(f)
+
+          flags = p['authority_proof']
+          assert flags['state_preserved'] is True
+          assert flags['unauthorized_reward_rejected'] is True
+          assert flags['unauthorized_changed_journal'] is False
+          assert flags['expanded_same_epoch_rejected'] is True
+          assert flags['rotated_epoch_rejected'] is True
+          assert flags['authority_proof_ref_present'] is True
+
+          authority_hash = p['authority']['authority_hash']
+          authority_ref = 'adaptive-authority://sha256/' + authority_hash
+          assert len(p['trials']) == 12
+          for trial in p['trials']:
+              assert trial['result']['authority_hash'] == authority_hash
+              assert trial['result']['authority_epoch'] == p['authority']['epoch']
+              assert authority_ref in trial['lifetra_observation']['proof_refs']
+
+          with open('hardware-adaptive-v0.4.journal.jsonl', 'r', encoding='utf-8') as f:
+              entries = [line for line in f if line.strip()]
+          assert len(entries) == 12
+          PY
+
+      - name: Show proof summary
+        run: |
+          grep -E '"authority_hash"|"state_preserved"|"unauthorized_reward_rejected"|"expanded_same_epoch_rejected"|"rotated_epoch_rejected"|"authority_proof_ref_present"' hardware-adaptive-proof-v0.4.json | head -20
