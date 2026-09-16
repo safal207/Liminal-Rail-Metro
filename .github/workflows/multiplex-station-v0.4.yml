@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: safal207/Lifetra
-          ref: f1944d5e3f61c35e5afa200c2911f9f6c2980192
+          ref: 6c6cb0ec707a0f0ca3315015eba1f4b934c9bffd
           path: _deps/Lifetra
 
       - name: Require gofmt
