@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:liminal-rail:metro.receipt:v0.1",
+  "title": "Liminal Rail Metro Receipt v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "receipt_id",
+    "action_id",
+    "route_id",
+    "executor_id",
+    "status",
+    "input_hash",
+    "started_at",
+    "completed_at"
+  ],
+  "properties": {
+    "protocol": {
+      "const": "metro.receipt.v0.1"
+    },
+    "receipt_id": {
+      "type": "string",
+      "minLength": 8
+    },
+    "action_id": {
+      "type": "string",
+      "minLength": 8,
+      "description": "Must match the originating packet action_id."
+    },
+    "route_id": {
+      "type": "string",
+      "minLength": 8,
+      "description": "Must match the route used for dispatch."
+    },
+    "executor_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Executor that actually handled the action."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["SUCCEEDED", "FAILED", "UNKNOWN", "REJECTED"],
+      "description": "UNKNOWN is explicit: lack of confirmation is not success and is not authority to redispatch a side effect."
+    },
+    "hash_algorithm": {
+      "const": "sha256",
+      "default": "sha256"
+    },
+    "input_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "result_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "result_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "SUCCEEDED"
+          }
+        }
+      },
+      "then": {
+        "required": ["result_hash"]
+      }
+    }
+  ]
+}
