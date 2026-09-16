@@ -4,7 +4,7 @@
 
 > Agents think. Liminal Rail moves.
 
-Liminal Rail Metro is an experimental open protocol and Go engine for moving bounded AI-agent actions across specialized agents and tools with explicit routing, stable action identity, and verifiable execution receipts.
+Liminal Rail Metro is an experimental open protocol and Go engine for moving bounded AI-agent actions across specialized agents and tools with explicit routing, stable action identity, bounded admission, and verifiable execution receipts.
 
 The project starts from one narrow question:
 
@@ -19,16 +19,18 @@ The engine is intentionally designed around Go's strengths for this problem: lig
 Current layout:
 
 ```text
-cmd/metro-demo/                 executable Metro proof
-cmd/lifetra-bridge-demo/        typed bridge proof
-cmd/rail-loop-demo/             real Go -> Rust -> Go loop
-cmd/persistent-station-bench/   warm-path station benchmark
-internal/metro/                 Go protocol engine
-internal/lifetrabridge/         proof/control contracts
-internal/lifetrastation/        one-shot + persistent station boundaries
-protocol/                       JSON protocol schemas
-examples/                       protocol journeys
-docs/                           architecture and claim ceilings
+cmd/metro-demo/                  executable Metro proof
+cmd/lifetra-bridge-demo/         typed bridge proof
+cmd/rail-loop-demo/              real Go -> Rust -> Go loop
+cmd/persistent-station-bench/    warm-path station benchmark
+cmd/multiplex-station-bench/     concurrent request-correlation benchmark
+cmd/adaptive-routing-bench/      admission/backpressure benchmark
+internal/metro/                  Go protocol engine
+internal/lifetrabridge/          proof/control contracts
+internal/lifetrastation/         process, multiplex, pool and adaptive routing boundaries
+protocol/                        JSON protocol schemas
+examples/                        protocol journeys
+docs/                            architecture and claim ceilings
 ```
 
 ## v0.1 protocol seed
@@ -99,16 +101,6 @@ Run it with a Lifetra checkout:
 go run ./cmd/rail-loop-demo -lifetra-dir ../Lifetra
 ```
 
-A successful proof ends with:
-
-```json
-{
-  "cross_runtime_loop": "PASS",
-  "path": "Go -> Rust -> Go",
-  "final_target": "qa-agent"
-}
-```
-
 v0.2 CI pins the Lifetra station to merge commit `80fc633e00c863aeb6505f008c43840ca6445579` so the proof cannot silently change when Lifetra evolves.
 
 ## v0.3 Persistent Lifetra Station
@@ -134,11 +126,11 @@ Go validates binding
 same Rust PID
 ```
 
-The station uses one NDJSON request and one NDJSON response per line. The Go client deliberately serializes requests in v0.3; request correlation and concurrent multiplexing are a later protocol bead.
+The station uses one NDJSON request and one NDJSON response per line. The Go client deliberately serializes requests in v0.3.
 
 Persistent-station CI pins Lifetra to merge commit `61b9d7ecdb59cea5a7b89675fdf5bd8c49bd6b55` and builds the Rust station as a release binary before measuring warm local-process round trips.
 
-A CI run over 200 sequential warm decisions on one GitHub runner produced:
+One CI run over 200 sequential warm decisions produced:
 
 ```text
 process start       498 us
@@ -154,15 +146,90 @@ same Rust PID      200/200 decisions
 
 These numbers describe only the local deterministic Go -> NDJSON -> Lifetra Rust control decision -> NDJSON -> Go validation boundary. They are **not** LLM inference, network, distributed-agent, or end-to-end task throughput measurements.
 
-Run the benchmark against a prebuilt Lifetra station:
+## v0.4 Request-correlated multiplex rail
 
-```bash
-go run ./cmd/persistent-station-bench \
-  -station-bin ../Lifetra/target/release/examples/metro_station_server \
-  -iterations 200
+v0.4 allows multiple requests to be in flight at the same time without making response order part of the contract.
+
+```text
+req-101 ---+
+req-102 ---+--> persistent Lifetra workers
+req-103 ---+              |
+                         responses may finish out of order
+                              |
+                              v
+                       request_id correlation
+                              |
+                              v
+                       original Go caller
 ```
 
-The benchmark reports process startup separately from warm average, p50, p95, min/max and derived sequential decisions per second.
+`request_id` is transport correlation, not execution identity. The inner `action_id`, observation, receipt and Lifetra authority bindings are still validated after correlation.
+
+Key boundaries:
+
+- one stdout reader dispatches responses through a pending-request table;
+- duplicate request IDs are rejected for the lifetime of both the Go client and Rust station;
+- an unknown or unbound response ID fails the station closed;
+- late responses for caller-abandoned control requests cannot be rebound to another request;
+- a pool can spread traffic across multiple persistent Rust PIDs;
+- `go test -race ./internal/lifetrastation` is a required CI gate.
+
+Lifetra multiplex support is pinned to merge commit `b8f1ff5ba4de78d3ab618c0886c5b528d40be15e`.
+
+The v0.4 matrix demonstrated that increasing concurrency raises throughput until queue pressure dominates tail latency. It motivated the next bead: explicit admission instead of letting internal queues grow without a Metro-level bound.
+
+## v0.5 Adaptive backpressure and load-aware routing
+
+v0.5 adds a separate `AdaptivePool`; the v0.4 round-robin pool stays unchanged as a control path.
+
+```text
+caller
+  |
+  v
+Adaptive admission
+  |
+  +-- all stations at cap --> ErrBackpressure (no dispatch)
+  |
+  v
+score available stations
+(in_flight + 1) * EWMA service latency
+  |
+  v
+selected persistent Lifetra station
+  |
+  v
+request-correlated decision
+```
+
+Important semantics:
+
+- each station has a hard `MaxInFlightPerStation` cap;
+- backpressure happens **before dispatch**, so the rejected attempt does not consume `request_id` and may be retried later;
+- once admitted, `request_id` becomes lifetime-unique and an execution error is **not** automatically rerouted or retried;
+- every station receives one cold exploration sample before measured latency affects routing;
+- snapshots expose in-flight count, completed/error counts, EWMA service latency and estimated delay;
+- an integration test uses two real child processes (one deliberately +5 ms slower) and verifies that after cold exploration subsequent sequential work is routed to the faster station;
+- unit tests and the Go race detector pass on the same v0.5 head.
+
+### Bounded-load proof
+
+One CI run used four persistent Rust PIDs, 16 Rust workers per PID, 64 concurrent Go callers and 1,024 completed requests per scenario:
+
+| Per-station cap | Total capacity | Backpressure events | Service p50 | Service p95 | E2E p95 | Throughput |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 2 | 8 | 6,260 | 439 us | 1.134 ms | 18.715 ms | 15.3k/s |
+| 8 | 32 | 1,122 | 1.277 ms | 2.737 ms | 9.884 ms | 22.6k/s |
+| 16 | 64 | 0 | 2.264 ms | 5.470 ms | 5.471 ms | 23.4k/s |
+
+Every scenario completed `1024/1024` without an execution error. Observed per-station in-flight counts never exceeded the configured cap: `2`, `8`, and `16` respectively.
+
+The important result is **not** that a smaller cap is universally faster. A tight cap protects the internal station service time but transfers waiting to callers. In this workload, cap `2` kept admitted service p50 low while producing a much larger end-to-end tail through repeated backpressure. Cap `16` admitted the full 64-caller workload with no backpressure, but allowed higher internal service latency.
+
+So v0.5 establishes a measurable control knob:
+
+> Backpressure bounds internal queue exposure; choosing the right bound is a latency/throughput policy decision, not a free speedup.
+
+The benchmark intentionally reports service latency separately from end-to-end latency so queueing cannot be hidden by moving it outside the station.
 
 ## Core artifacts
 
@@ -172,18 +239,18 @@ The benchmark reports process startup separately from warm average, p50, p95, mi
 - `protocol/lifetra.observation.v0.1.json` — Metro receipt -> Lifetra observation contract
 - `protocol/lifetra.station.request.v0.1.json` — control-station request contract
 - `protocol/lifetra.decision.v0.1.json` — Lifetra authority decision -> Metro packet contract
-- `examples/research-code-qa.json` — minimal Metro journey
-- `examples/lifetra-control-loop.json` — proof/control-loop bridge example
+- `protocol/lifetra.station.request-envelope.v0.2.json` — request correlation envelope
+- `protocol/lifetra.station.response-envelope.v0.2.json` — correlated decision envelope
+- `protocol/lifetra.station.error.v0.2.json` — correlated station error envelope
 - `internal/metro/metro.go` — Go engine core
 - `internal/lifetrabridge/bridge.go` — Go bridge adapter
-- `internal/lifetrabridge/station.go` — station request types and validation
 - `internal/lifetrastation/process.go` — one-shot external process adapter
-- `internal/lifetrastation/persistent.go` — persistent NDJSON process adapter
-- `internal/lifetrastation/persistent_test.go` — process reuse and fail-closed tests
-- `cmd/rail-loop-demo/main.go` — executable Go -> Rust -> Go proof
-- `cmd/persistent-station-bench/main.go` — persistent station benchmark
-- `docs/e2e-rail-loop.md` — cross-runtime v0.2 proof
-- `docs/persistent-station-v0.3.md` — persistent boundary and benchmark claim ceiling
+- `internal/lifetrastation/persistent.go` — persistent sequential NDJSON adapter
+- `internal/lifetrastation/multiplex.go` — concurrent request-correlated process and pool
+- `internal/lifetrastation/adaptive.go` — bounded admission and EWMA-informed routing
+- `cmd/persistent-station-bench/main.go` — v0.3 benchmark
+- `cmd/multiplex-station-bench/main.go` — v0.4 multiplex benchmark
+- `cmd/adaptive-routing-bench/main.go` — v0.5 admission/backpressure benchmark
 
 ## Lifetra bridge
 
@@ -227,34 +294,30 @@ A station decision must be checked against the observation, action identity, and
 ### 8. Persistence must not weaken the proof boundary
 Keeping Rust alive is a transport optimization only. Each returned decision is validated exactly as if the station had been started for one request.
 
+### 9. Backpressure must happen before ambiguous execution
+A saturated control plane may reject an action before dispatch. Once dispatch may have occurred, timeout or failure cannot be treated as permission to send the logical action elsewhere.
+
 ## Non-goals
 
 This repository does **not** yet claim:
 
 - exactly-once execution across arbitrary distributed systems;
 - cryptographic trust between independent organizations;
-- production-grade scheduling, billing, auth, or service discovery;
-- benchmark superiority over existing queues, buses, or agent frameworks;
+- production-grade scheduling, billing, auth, service discovery or autoscaling;
+- benchmark superiority over existing queues, buses, RPC systems or agent frameworks;
 - autonomous safety for high-risk actions;
 - safe redispatch after an `UNKNOWN` external effect;
-- durable orchestration across process crashes;
+- durable orchestration across Metro process crashes;
 - production RPC between Metro and Lifetra;
-- parallel persistent-station throughput.
+- that one admission cap is optimal across workloads;
+- that local control-plane throughput equals AI-agent or LLM throughput.
 
-The current milestone is to make the handoff, evidence, control, and cross-runtime boundary explicit, small, independently testable, and measurable without conflating process startup with warm decisions.
-
-## Run the demos
+## Run the demos and proofs
 
 Metro core:
 
 ```bash
 go run ./cmd/metro-demo
-```
-
-Typed Lifetra bridge:
-
-```bash
-go run ./cmd/lifetra-bridge-demo
 ```
 
 Real Go -> Rust -> Go loop:
@@ -271,15 +334,31 @@ go run ./cmd/persistent-station-bench \
   -iterations 200
 ```
 
-Run Go invariant tests:
+Multiplex benchmark:
+
+```bash
+go run ./cmd/multiplex-station-bench \
+  -station-bin ../Lifetra/target/release/examples/metro_station_mux
+```
+
+Adaptive admission benchmark:
+
+```bash
+go run ./cmd/adaptive-routing-bench \
+  -station-bin ../Lifetra/target/release/examples/metro_station_mux \
+  -pool 4 -concurrency 64 -limits 2,8,16
+```
+
+Run Go invariants and race checks:
 
 ```bash
 go test ./...
+go test -race ./internal/lifetrastation
 ```
 
 ## Status
 
-`v0.3` — CI-verified persistent Lifetra station with same-PID reuse, fail-closed binding checks, and measured warm local-process decision latency.
+`v0.5` — CI-verified request-correlated multiplex transport with race-checked bounded admission, explicit backpressure, EWMA-informed station routing, real slow/fast station avoidance, and separate service versus end-to-end latency evidence.
 
 Contributions should preserve the narrow claim ceiling: make the protocol more independently verifiable before making it more ambitious.
 

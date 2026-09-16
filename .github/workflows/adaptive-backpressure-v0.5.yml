@@ -1,0 +1,71 @@
+name: Adaptive Backpressure v0.5
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  adaptive-backpressure:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Liminal Rail Metro
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Checkout proven Lifetra multiplex station
+        uses: actions/checkout@v4
+        with:
+          repository: safal207/Lifetra
+          ref: b8f1ff5ba4de78d3ab618c0886c5b528d40be15e
+          path: _deps/Lifetra
+
+      - name: Require gofmt
+        run: |
+          unformatted="$(gofmt -l -- $(find . -path './_deps' -prune -o -name '*.go' -print))"
+          if [ -n "$unformatted" ]; then
+            echo "Go files require gofmt:" >&2
+            echo "$unformatted" >&2
+            gofmt -d -- $unformatted
+            exit 1
+          fi
+
+      - name: Go unit tests
+        run: go test ./...
+
+      - name: Go race detector
+        run: go test -race ./internal/lifetrastation
+
+      - name: Build multiplex Lifetra station
+        run: cargo build --release --manifest-path _deps/Lifetra/Cargo.toml --example metro_station_mux
+
+      - name: Benchmark adaptive admission and routing
+        run: |
+          go run ./cmd/adaptive-routing-bench \
+            -station-bin ./_deps/Lifetra/target/release/examples/metro_station_mux \
+            -requests 1024 \
+            -workers 16 \
+            -pool 4 \
+            -concurrency 64 \
+            -limits 2,8,16 > adaptive-backpressure-proof.json
+          grep -q '"verdict": "PASS"' adaptive-backpressure-proof.json
+          jq -e 'all(.scenarios[]; .completed_without_error == .requests)' adaptive-backpressure-proof.json
+          jq -e 'all(.scenarios[]; .max_observed_station_in_flight <= .max_in_flight_per_station)' adaptive-backpressure-proof.json
+          jq -e 'any(.scenarios[]; .backpressure_events > 0)' adaptive-backpressure-proof.json
+          cat adaptive-backpressure-proof.json
+
+      - name: Upload adaptive proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: adaptive-backpressure-v0.5-proof
+          path: adaptive-backpressure-proof.json
