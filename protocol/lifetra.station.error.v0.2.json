@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liminal-rail.dev/protocol/lifetra.station.error.v0.2.json",
+  "title": "Lifetra Station Error v0.2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "error"],
+  "properties": {
+    "protocol": {
+      "const": "lifetra.station.error.v0.2"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "error": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}
