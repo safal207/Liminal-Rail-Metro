@@ -33,6 +33,7 @@ type Request struct {
 	Protocol    string         `json:"protocol"`
 	RequestID   string         `json:"request_id"`
 	ActionID    string         `json:"action_id"`
+	PacketHash  string         `json:"packet_hash"`
 	State       map[string]any `json:"state,omitempty"`
 	StateHash   string         `json:"state_hash"`
 	Choices     []Choice       `json:"choices"`
@@ -50,6 +51,7 @@ type Decision struct {
 	RequestID        string        `json:"request_id"`
 	ActionID         string        `json:"action_id"`
 	ProviderID       string        `json:"provider_id"`
+	PacketHash       string        `json:"packet_hash"`
 	StateHash        string        `json:"state_hash"`
 	ChoicesHash      string        `json:"choices_hash"`
 	SelectedChoiceID string        `json:"selected_choice_id"`
@@ -116,6 +118,10 @@ func NewRequest(packet metro.Packet, requestID string, state map[string]any, cho
 		seenTargets[choice.Target] = struct{}{}
 	}
 
+	packetHash, err := metro.HashJSON(packet)
+	if err != nil {
+		return Request{}, fmt.Errorf("hash decision packet: %w", err)
+	}
 	stateCopy, stateHash, err := cloneAndHashState(state)
 	if err != nil {
 		return Request{}, err
@@ -129,6 +135,7 @@ func NewRequest(packet metro.Packet, requestID string, state map[string]any, cho
 		Protocol:    RequestProtocol,
 		RequestID:   requestID,
 		ActionID:    packet.ActionID,
+		PacketHash:  packetHash,
 		State:       stateCopy,
 		StateHash:   stateHash,
 		Choices:     choicesCopy,
@@ -188,6 +195,16 @@ func ValidateDecision(packet metro.Packet, request Request, decision Decision) e
 		return errors.New("decision request_id mismatch")
 	}
 
+	packetHash, err := metro.HashJSON(packet)
+	if err != nil {
+		return fmt.Errorf("hash decision packet: %w", err)
+	}
+	if request.PacketHash != packetHash {
+		return errors.New("decision packet changed after binding")
+	}
+	if decision.PacketHash != request.PacketHash {
+		return errors.New("decision packet_hash mismatch")
+	}
 	stateHash, err := HashState(request.State)
 	if err != nil {
 		return err
@@ -378,6 +395,7 @@ func NewDecision(request Request, providerID, selectedChoiceID string, probabili
 		RequestID:        request.RequestID,
 		ActionID:         request.ActionID,
 		ProviderID:       providerID,
+		PacketHash:       request.PacketHash,
 		StateHash:        request.StateHash,
 		ChoicesHash:      request.ChoicesHash,
 		SelectedChoiceID: selectedChoiceID,
