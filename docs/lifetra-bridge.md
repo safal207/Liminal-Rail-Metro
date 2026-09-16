@@ -17,7 +17,11 @@ Metro Receipt
 lifetra.observation.v0.1
     |
     v
-Lifetra bead / trajectory / orientation / authority
+lifetra.station.request.v0.1
+    |
+    v
+Lifetra Rust station
+TrajectoryBead -> OrientationDelta -> CorrectionPolicy -> DecisionAuthority
     |
     v
 lifetra.decision.v0.1
@@ -42,7 +46,24 @@ The bridge preserves:
 
 The bridge does not infer success from missing evidence and does not turn an observation into a trajectory commit by itself.
 
-## Contract 2: Lifetra decision -> Metro packet
+## Contract 2: observation -> Lifetra station request
+
+`protocol/lifetra.station.request.v0.1.json` defines the JSON request consumed by the companion Rust station.
+
+It carries the Metro observation plus the minimum control context Lifetra needs to interpret the event:
+
+- intended orientation;
+- observed movement for externally confirmed outcomes;
+- correction-policy bounds;
+- safety/authority bounds;
+- runtime approval context;
+- a proposed *new* action that can be emitted only if Lifetra returns `ALLOW`.
+
+`examples/lifetra-station-request.json` is the first concrete journey fixture.
+
+The request deliberately does not ask Metro to compute Lifetra's orientation delta or authority verdict. Those remain Rust-side Lifetra semantics.
+
+## Contract 3: Lifetra decision -> Metro packet
 
 `DecisionToPacket` converts only `ALLOW` decisions into dispatchable Metro packets.
 
@@ -50,14 +71,35 @@ The bridge does not infer success from missing evidence and does not turn an obs
 
 An allowed decision must include an authority proof reference and a `next_action`. The new action receives a new stable `action_id`; the prior action remains linked as causal provenance through `caused_by_action_id` and `previous_receipt_ref`.
 
-This intentionally rejects silent reuse of the previous `action_id`. Explicit retry or reconciliation authority is a future protocol rather than an accidental redispatch path.
+This intentionally rejects silent reuse of the previous `action_id`. Explicit retry or reconciliation authority is a separate protocol rather than an accidental redispatch path.
+
+## Real Lifetra station
+
+The companion Lifetra work is implemented in `safal207/Lifetra` PR #7 (`feat/metro-station-v0.1`). The Rust example consumes `lifetra.station.request.v0.1` from stdin and emits `lifetra.decision.v0.1` on stdout using Lifetra's existing primitives:
+
+```text
+TrajectoryBead
+    -> BeadCommit
+    -> ProvenOrientation
+    -> OrientationDelta
+    -> CorrectionPolicy
+    -> DecisionAuthority
+```
+
+Important behavior:
+
+- Metro `UNKNOWN` creates unresolved bead uncertainty and emits `BLOCK`;
+- `REJECTED` emits `BLOCK` in station v0.1;
+- confirmed `SUCCEEDED` or `FAILED` outcomes can enter the proof-backed orientation path when observed movement is supplied;
+- corrections outside the automatic envelope emit `REQUIRE_APPROVAL` rather than an executable action;
+- only `ALLOW` returns a new action proposal.
 
 ## Why two engines stay separate
 
 - **Metro / Go**: hot path, routing, concurrency, transport, adapters, receipts.
 - **Lifetra / Rust**: beads, causal state, orientation delta, correction policy, decision authority, execution evidence semantics.
 
-The bridge is JSON-compatible so either side can evolve independently behind the two wire contracts.
+The bridge is JSON-compatible so either side can evolve independently behind the wire contracts.
 
 ## Invariants
 
@@ -69,19 +111,39 @@ The bridge is JSON-compatible so either side can evolve independently behind the
 6. The source receipt and authority proof remain in packet provenance.
 7. The bridge does not claim exactly-once execution or automatic safe recovery.
 
-## Run
+## Run Metro side
 
 ```bash
 go test ./...
 go run ./cmd/lifetra-bridge-demo
 ```
 
-The demo performs one closed control-loop handoff:
+The Go demo performs the typed handoff:
 
 ```text
 Metro receipt -> Lifetra observation -> ALLOW decision -> next Metro packet
 ```
 
+## Run the companion Rust station
+
+From the Lifetra branch in PR #7:
+
+```bash
+cargo run --quiet --example metro_station < request.json
+```
+
+A full end-to-end journey is therefore:
+
+```text
+Go Metro receipt
+  -> Go observation adapter
+  -> lifetra.station.request.v0.1 JSON
+  -> Rust Lifetra station
+  -> lifetra.decision.v0.1 JSON
+  -> Go DecisionToPacket
+  -> next Metro route
+```
+
 ## Claim ceiling
 
-v0.1 is only a typed and testable interoperability boundary. It does not yet call the Lifetra Rust library over FFI or RPC, create beads automatically, calculate orientation deltas, perform reconciliation, or authorize redispatch after an `UNKNOWN` effect.
+v0.1 is a typed, testable interoperability boundary plus an experimental external Lifetra station. It does not yet provide a long-running RPC service, automatic semantic inference of orientation from arbitrary tool output, exactly-once execution, or safe automatic redispatch after an `UNKNOWN` effect.
