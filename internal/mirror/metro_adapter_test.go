@@ -20,11 +20,17 @@ func TestEvidenceFromVerifiedReceiptPromotesBoundSuccess(t *testing.T) {
 	if evidence.ClaimID != claim.ID || evidence.ActionID != claim.ActionID || evidence.ValueHash != claim.ValueHash {
 		t.Fatal("promoted evidence lost claim/action/value binding")
 	}
-	if len(evidence.Provenance) < 5 {
-		t.Fatalf("expected receipt + authority provenance chain, got %v", evidence.Provenance)
+	if len(evidence.Provenance) < 7 {
+		t.Fatalf("expected receipt + immutable authority provenance chain, got %v", evidence.Provenance)
 	}
 	if !containsPrefix(evidence.Provenance, "authority://") {
-		t.Fatalf("expected explicit authority provenance, got %v", evidence.Provenance)
+		t.Fatalf("expected explicit authority decision provenance, got %v", evidence.Provenance)
+	}
+	if !containsPrefix(evidence.Provenance, "policy://") {
+		t.Fatalf("expected durable authority policy ref, got %v", evidence.Provenance)
+	}
+	if !containsPrefix(evidence.Provenance, "policy-sha256://") {
+		t.Fatalf("expected authority policy content hash, got %v", evidence.Provenance)
 	}
 
 	decision := (Gate{}).Evaluate(claim, []Evidence{evidence})
@@ -83,6 +89,16 @@ func TestEvidenceFromVerifiedReceiptRejectsMissingResultRef(t *testing.T) {
 	}
 }
 
+func TestEvidenceFromVerifiedReceiptRejectsAuthorityWithoutDurableRef(t *testing.T) {
+	claim, packet, route, result, receipt := verifiedFixture(t, "action-bridge-007")
+	policy := testCodeAuthorityPolicy()
+	policy.PolicyRef = ""
+
+	if _, err := EvidenceFromVerifiedReceipt(claim, packet, route, result, receipt, policy); err == nil {
+		t.Fatal("authority policy without durable policy_ref must not authorize external evidence")
+	}
+}
+
 func verifiedFixture(t *testing.T, actionID string) (Claim, metro.Packet, metro.Route, map[string]any, metro.Receipt) {
 	t.Helper()
 
@@ -124,7 +140,9 @@ func verifiedFixture(t *testing.T, actionID string) (Claim, metro.Packet, metro.
 
 func testCodeAuthorityPolicy() AuthorityPolicy {
 	return AuthorityPolicy{
-		ID: "test-authority-v1",
+		Protocol:  AuthorityPolicyProtocol,
+		ID:        "test-authority-v1",
+		PolicyRef: "policy://liminal-rail/test-authority/v1",
 		ExecutorsByAction: map[string][]string{
 			"code.implement": {"code-agent"},
 		},
