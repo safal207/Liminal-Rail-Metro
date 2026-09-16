@@ -9,6 +9,7 @@
     "request_id",
     "action_id",
     "provider_id",
+    "packet_hash",
     "state_hash",
     "choices_hash",
     "selected_choice_id",
@@ -31,6 +32,10 @@
     "provider_id": {
       "type": "string",
       "minLength": 1
+    },
+    "packet_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
     },
     "state_hash": {
       "type": "string",
