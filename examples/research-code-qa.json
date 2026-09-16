@@ -1,0 +1,117 @@
+{
+  "journey": "research-code-qa",
+  "description": "Two composable v0.1 hops. The second packet links to the first receipt instead of inheriting trust implicitly.",
+  "hops": [
+    {
+      "packet": {
+        "protocol": "metro.packet.v0.1",
+        "action_id": "action-code-001",
+        "source_agent": "research-agent",
+        "created_at": "2026-09-16T13:00:00Z",
+        "goal": "Implement one bounded route adapter from the research finding.",
+        "action": {
+          "kind": "code.implement",
+          "inputs": {
+            "research_summary": "Jev-like fast router candidate identified",
+            "task": "implement bounded route adapter"
+          }
+        },
+        "allowed_targets": ["code-agent"],
+        "context_refs": ["evidence://research/jev-routing-note"],
+        "constraints": {
+          "timeout_ms": 5000,
+          "side_effect": false
+        }
+      },
+      "route": {
+        "protocol": "metro.route.v0.1",
+        "route_id": "route-code-001",
+        "action_id": "action-code-001",
+        "router_id": "metro-router-local",
+        "decision_mode": "deterministic",
+        "selected_target": "code-agent",
+        "candidates": [
+          {
+            "target": "code-agent",
+            "score": 1.0
+          }
+        ],
+        "confidence": 1.0,
+        "policy_ref": "policy://demo/route-by-action-kind",
+        "decided_at": "2026-09-16T13:00:01Z"
+      },
+      "receipt": {
+        "protocol": "metro.receipt.v0.1",
+        "receipt_id": "receipt-code-001",
+        "action_id": "action-code-001",
+        "route_id": "route-code-001",
+        "executor_id": "code-agent",
+        "status": "SUCCEEDED",
+        "hash_algorithm": "sha256",
+        "input_hash": "ca343aed6918a2c2513667cdb242299f6ceba69352c6280238f823d9e3b0a5ae",
+        "result_hash": "92f13cf3e0f46f4663a874247edb408e488b22ea19457cf3b71372d3a8e627df",
+        "result_ref": "git://demo/code-adapter.py",
+        "started_at": "2026-09-16T13:00:02Z",
+        "completed_at": "2026-09-16T13:00:03Z"
+      }
+    },
+    {
+      "packet": {
+        "protocol": "metro.packet.v0.1",
+        "action_id": "action-qa-001",
+        "source_agent": "code-agent",
+        "created_at": "2026-09-16T13:00:04Z",
+        "goal": "Verify the bounded adapter against the v0.1 protocol invariants.",
+        "action": {
+          "kind": "qa.verify",
+          "inputs": {
+            "artifact_ref": "git://demo/code-adapter.py",
+            "checks": [
+              "stable action identity",
+              "allowed target enforcement",
+              "receipt binding"
+            ]
+          }
+        },
+        "allowed_targets": ["qa-agent"],
+        "context_refs": ["urn:liminal-rail:metro.packet:v0.1", "urn:liminal-rail:metro.receipt:v0.1"],
+        "constraints": {
+          "timeout_ms": 5000,
+          "side_effect": false
+        },
+        "previous_receipt_ref": "receipt-code-001"
+      },
+      "route": {
+        "protocol": "metro.route.v0.1",
+        "route_id": "route-qa-001",
+        "action_id": "action-qa-001",
+        "router_id": "metro-router-local",
+        "decision_mode": "deterministic",
+        "selected_target": "qa-agent",
+        "candidates": [
+          {
+            "target": "qa-agent",
+            "score": 1.0
+          }
+        ],
+        "confidence": 1.0,
+        "policy_ref": "policy://demo/route-by-action-kind",
+        "decided_at": "2026-09-16T13:00:05Z"
+      },
+      "receipt": {
+        "protocol": "metro.receipt.v0.1",
+        "receipt_id": "receipt-qa-001",
+        "action_id": "action-qa-001",
+        "route_id": "route-qa-001",
+        "executor_id": "qa-agent",
+        "status": "SUCCEEDED",
+        "hash_algorithm": "sha256",
+        "input_hash": "44dd885464dc27247e18c57825453d5b6dfdcf7b7194b8759ddc98271e3ac32c",
+        "result_hash": "6e43ada936594100dc495adc0f414d5c8e2ed261eb86b30f43c776c6b3c407b3",
+        "result_ref": "evidence://demo/qa-verification.json",
+        "started_at": "2026-09-16T13:00:06Z",
+        "completed_at": "2026-09-16T13:00:07Z"
+      }
+    }
+  ]
+}
