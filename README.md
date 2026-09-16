@@ -241,7 +241,7 @@ The benchmark intentionally reports service latency separately from end-to-end l
 - `protocol/lifetra.decision.v0.1.json` — Lifetra authority decision -> Metro packet contract
 - `protocol/lifetra.station.request-envelope.v0.2.json` — request correlation envelope
 - `protocol/lifetra.station.response-envelope.v0.2.json` — correlated decision envelope
-- `protocol/lifetra.station.error-envelope.v0.2.json` — correlated station error envelope
+- `protocol/lifetra.station.error.v0.2.json` — correlated station error envelope
 - `internal/metro/metro.go` — Go engine core
 - `internal/lifetrabridge/bridge.go` — Go bridge adapter
 - `internal/lifetrastation/process.go` — one-shot external process adapter
