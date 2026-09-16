@@ -70,7 +70,7 @@ func OpenDeviceBoundLearner(path string, chain AuthorityChain, anchor deviceatte
 }
 
 func (l *DeviceBoundLearner) Anchor() deviceattest.TrustAnchor { return l.anchor }
-func (l *DeviceBoundLearner) Chain() AuthorityChain               { return l.chained.Chain() }
+func (l *DeviceBoundLearner) Chain() AuthorityChain            { return l.chained.Chain() }
 func (l *DeviceBoundLearner) CurrentSignedGrant() SignedAuthorityGrant {
 	return l.chained.CurrentSignedGrant()
 }
