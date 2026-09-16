@@ -138,6 +138,22 @@ The station uses one NDJSON request and one NDJSON response per line. The Go cli
 
 Persistent-station CI pins Lifetra to merge commit `61b9d7ecdb59cea5a7b89675fdf5bd8c49bd6b55` and builds the Rust station as a release binary before measuring warm local-process round trips.
 
+A CI run over 200 sequential warm decisions on one GitHub runner produced:
+
+```text
+process start       498 us
+first response     1319 us
+warm average       85.65 us
+warm p50              83 us
+warm p95             105 us
+warm min              61 us
+warm max             159 us
+derived sequential rate ~11,675 decisions/s
+same Rust PID      200/200 decisions
+```
+
+These numbers describe only the local deterministic Go -> NDJSON -> Lifetra Rust control decision -> NDJSON -> Go validation boundary. They are **not** LLM inference, network, distributed-agent, or end-to-end task throughput measurements.
+
 Run the benchmark against a prebuilt Lifetra station:
 
 ```bash
@@ -146,7 +162,7 @@ go run ./cmd/persistent-station-bench \
   -iterations 200
 ```
 
-The benchmark reports process startup separately from warm average, p50, p95, min/max and derived sequential decisions per second. It does **not** claim LLM, network, or distributed-agent speed.
+The benchmark reports process startup separately from warm average, p50, p95, min/max and derived sequential decisions per second.
 
 ## Core artifacts
 
@@ -263,7 +279,7 @@ go test ./...
 
 ## Status
 
-`v0.3` — persistent Lifetra station proof in progress on top of the CI-verified v0.2 Go -> Rust -> Go loop.
+`v0.3` — CI-verified persistent Lifetra station with same-PID reuse, fail-closed binding checks, and measured warm local-process decision latency.
 
 Contributions should preserve the narrow claim ceiling: make the protocol more independently verifiable before making it more ambitious.
 
