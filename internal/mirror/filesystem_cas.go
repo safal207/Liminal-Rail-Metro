@@ -11,7 +11,7 @@ import (
 
 // FilesystemCAS persists content-addressed objects under:
 //
-//   <root>/sha256/<first-two-hex>/<full-digest>
+//	<root>/sha256/<first-two-hex>/<full-digest>
 //
 // Writes are staged in the destination directory and atomically renamed into
 // place. Every successful Put performs a read-after-write digest verification.
