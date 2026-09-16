@@ -1,0 +1,55 @@
+name: Remote Provider v0.7
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  remote-provider:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Liminal Rail Metro
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.23.x
+          cache: false
+
+      - name: Require gofmt
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l -- $(find . -path './_deps' -prune -o -name '*.go' -print))"
+          if [ -n "$unformatted" ]; then
+            echo "Go files require gofmt:" >&2
+            echo "$unformatted" >&2
+            gofmt -d -- $unformatted
+            exit 1
+          fi
+
+      - name: Go unit tests
+        run: go test ./...
+
+      - name: Go race detector
+        run: go test -race ./internal/decisionplane ./internal/lifetrastation
+
+      - name: Run remote provider boundary proof
+        shell: bash
+        run: |
+          go run ./cmd/remote-provider-demo > remote-provider-v0.7-proof.json
+          grep -q '"verdict": "PASS"' remote-provider-v0.7-proof.json
+          grep -q '"transport": "HTTP JSON loopback proof"' remote-provider-v0.7-proof.json
+          grep -q '"selected_target": "code-agent"' remote-provider-v0.7-proof.json
+          grep -q '"disposition": "AUTO_ROUTE"' remote-provider-v0.7-proof.json
+          cat remote-provider-v0.7-proof.json
+
+      - name: Upload remote provider proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: remote-provider-v0.7-proof
+          path: remote-provider-v0.7-proof.json
+          if-no-files-found: error
