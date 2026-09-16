@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liminal-rail.local/protocol/trust.evidence.v1.0.json",
+  "title": "Liminal Trust Evidence v1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "external_identity_verified",
+    "portable_publication_verified",
+    "hardware_backed",
+    "remote_hardware_attestation",
+    "source_proof_hash",
+    "evidence_hash"
+  ],
+  "properties": {
+    "protocol": {"const": "liminal.trust-evidence.v1.0"},
+    "external_identity_verified": {"type": "boolean"},
+    "portable_publication_verified": {"type": "boolean"},
+    "hardware_backed": {"type": "boolean"},
+    "remote_hardware_attestation": {"type": "boolean"},
+    "source_proof_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "discovery_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "portable_proof_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "evidence_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}
