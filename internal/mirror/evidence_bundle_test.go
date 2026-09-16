@@ -1,8 +1,6 @@
 package mirror
 
-import (
-	"testing"
-)
+import "testing"
 
 func TestBuildEvidenceBundleProducesContentAddressedManifest(t *testing.T) {
 	claim, packet, route, result, receipt := verifiedFixture(t, "action-bundle-001")
