@@ -126,7 +126,7 @@ func testRequest() lifetrabridge.StationRequest {
 			HardMaxAdjustment:       0.25,
 		},
 		AuthorityContext: lifetrabridge.AuthorityContext{
-			HumanApproval:  "unknown",
+			HumanApproval:   "unknown",
 			QuorumApprovals: 0,
 		},
 		NextAction: lifetrabridge.NextAction{

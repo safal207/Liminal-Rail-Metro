@@ -118,7 +118,7 @@ func main() {
 			Verdict:             "PASS",
 			Path:                "Go -> persistent Rust Lifetra -> Go",
 		},
-		"metrics": resultMetrics,
+		"metrics":       resultMetrics,
 		"claim_ceiling": "Measures one sequential local-process NDJSON station on one runner; it is not a distributed-network or model-inference benchmark.",
 	}
 	payload, err := json.MarshalIndent(out, "", "  ")

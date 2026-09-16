@@ -23,17 +23,17 @@ type CorrectionConfig struct {
 }
 
 type SafetyConfig struct {
-	Autonomy                 string  `json:"autonomy"`
-	MinProofRefs             int     `json:"min_proof_refs"`
-	QuorumRequired           int     `json:"quorum_required"`
-	RequireHumanApproval     bool    `json:"require_human_approval"`
-	MaxAutonomousAdjustment  float64 `json:"max_autonomous_adjustment"`
-	HardMaxAdjustment        float64 `json:"hard_max_adjustment"`
+	Autonomy                string  `json:"autonomy"`
+	MinProofRefs            int     `json:"min_proof_refs"`
+	QuorumRequired          int     `json:"quorum_required"`
+	RequireHumanApproval    bool    `json:"require_human_approval"`
+	MaxAutonomousAdjustment float64 `json:"max_autonomous_adjustment"`
+	HardMaxAdjustment       float64 `json:"hard_max_adjustment"`
 }
 
 type AuthorityContext struct {
-	HumanApproval  string `json:"human_approval"`
-	QuorumApprovals int   `json:"quorum_approvals"`
+	HumanApproval   string `json:"human_approval"`
+	QuorumApprovals int    `json:"quorum_approvals"`
 }
 
 type StationRequest struct {
