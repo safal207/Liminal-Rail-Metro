@@ -15,9 +15,9 @@ func gateEvidence(t *testing.T) trustpolicy.Evidence {
 	e, err := trustpolicy.NewEvidence(trustpolicy.EvidenceInput{
 		ExternalIdentityVerified:    true,
 		PortablePublicationVerified: true,
-		SourceProofHash:              gateHashA,
-		DiscoveryHash:                gateHashB,
-		PortableProofHash:            gateHashA,
+		SourceProofHash:             gateHashA,
+		DiscoveryHash:               gateHashB,
+		PortableProofHash:           gateHashA,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -27,7 +27,7 @@ func gateEvidence(t *testing.T) trustpolicy.Evidence {
 
 func TestTrustGateDeniedCallbacksAreNotCalled(t *testing.T) {
 	p, err := trustpolicy.NewPolicy("hardware-critical", trustpolicy.Requirements{
-		ExternalIdentity:           true,
+		ExternalIdentity:          true,
 		PortablePublication:       true,
 		HardwareBacked:            true,
 		RemoteHardwareAttestation: true,
