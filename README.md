@@ -19,11 +19,13 @@ The engine is intentionally designed around Go's strengths for this problem: lig
 Current layout:
 
 ```text
-cmd/metro-demo/        executable proof
-internal/metro/        Go protocol engine
-protocol/              JSON protocol schemas
-examples/              protocol journeys
-docs/                  architecture and claim ceiling
+cmd/metro-demo/          executable proof
+cmd/lifetra-bridge-demo/ Metro <-> Lifetra control-loop demo
+internal/metro/          Go protocol engine
+internal/lifetrabridge/  proof/control bridge
+protocol/                JSON protocol schemas
+examples/                protocol journeys
+docs/                    architecture and claim ceiling
 ```
 
 ## v0.1 scope
@@ -34,6 +36,7 @@ The first version intentionally stays small:
 2. A **route decision** selects the next execution target from allowed targets.
 3. The target executes the action.
 4. A **receipt** records what executed and binds the result back to the original action.
+5. An optional **Lifetra bridge** turns execution evidence into an observation and only an authorized Lifetra decision back into a new Metro packet.
 
 ```text
 Research Agent
@@ -54,12 +57,15 @@ Research Agent
 +-------------+
       |
       v
-+-------------+
-|  QA Agent   |
-+-------------+
+Execution Receipt
       |
       v
-Execution Receipt
++------------------+
+| Lifetra Control  |
++------------------+
+      |
+      v
+Next Metro Packet
 ```
 
 ## Core artifacts
@@ -67,11 +73,34 @@ Execution Receipt
 - `protocol/metro.packet.v0.1.json` — bounded action envelope
 - `protocol/metro.route.v0.1.json` — route decision envelope
 - `protocol/metro.receipt.v0.1.json` — execution evidence envelope
-- `examples/research-code-qa.json` — minimal example journey
+- `protocol/lifetra.observation.v0.1.json` — Metro receipt -> Lifetra observation contract
+- `protocol/lifetra.decision.v0.1.json` — Lifetra authority decision -> Metro packet contract
+- `examples/research-code-qa.json` — minimal Metro journey
+- `examples/lifetra-control-loop.json` — proof/control-loop bridge example
 - `internal/metro/metro.go` — Go engine core
 - `internal/metro/metro_test.go` — protocol invariant tests
+- `internal/lifetrabridge/bridge.go` — Go bridge adapter
+- `internal/lifetrabridge/bridge_test.go` — bridge invariant tests
 - `cmd/metro-demo/main.go` — executable Go demonstration
+- `cmd/lifetra-bridge-demo/main.go` — executable bridge demonstration
 - `docs/architecture.md` — v0.1 architecture and claim ceiling
+- `docs/lifetra-bridge.md` — bridge boundary and invariants
+
+## Lifetra bridge
+
+Metro stays on the hot path; Lifetra stays on the reflective/control path.
+
+```text
+Metro Receipt
+    -> Lifetra Observation
+    -> bead / trajectory / authority
+    -> Lifetra Decision
+    -> next Metro Packet
+```
+
+The bridge preserves `UNKNOWN`, rejects `BLOCK` and `REQUIRE_APPROVAL` as dispatch authority, carries receipt/authority provenance forward, and rejects silent reuse of the prior action identity for a new logical action.
+
+> Metro moves. Lifetra remembers why.
 
 ## Design principles
 
@@ -90,6 +119,9 @@ A route decision is not proof of execution. A receipt binds the action, selected
 ### 5. Fail closed on uncertainty
 If execution identity or completion is uncertain, the system should surface `UNKNOWN` rather than claim success or blindly redispatch a side effect.
 
+### 6. Authority is separate from execution
+A Lifetra `ALLOW` decision can authorize creation of a new Metro packet, but permission is not evidence that the packet was dispatched or that its external effect completed.
+
 ## Non-goals for v0.1
 
 This repository does **not** yet claim:
@@ -98,27 +130,35 @@ This repository does **not** yet claim:
 - cryptographic trust between independent organizations;
 - production-grade scheduling, billing, auth, or service discovery;
 - benchmark superiority over existing queues, buses, or agent frameworks;
-- autonomous safety for high-risk actions.
+- autonomous safety for high-risk actions;
+- automatic Lifetra bead creation or Rust FFI/RPC integration;
+- safe redispatch after an `UNKNOWN` external effect.
 
-The first milestone is only to make the handoff and evidence model explicit, small, and testable.
+The first milestone is only to make the handoff, evidence, and control boundary explicit, small, and testable.
 
-## Run the Go demo
+## Run the Go demos
+
+Metro core:
 
 ```bash
 go run ./cmd/metro-demo
 ```
 
-Run the invariant tests:
+Lifetra bridge:
+
+```bash
+go run ./cmd/lifetra-bridge-demo
+```
+
+Run invariant tests:
 
 ```bash
 go test ./...
 ```
 
-The demo creates a packet, makes a deterministic route choice from allowed targets, executes a toy bounded action, and emits a receipt whose hashes can be independently recomputed.
-
 ## Status
 
-`v0.1` — protocol seed / experimental Go engine.
+`v0.1` — protocol seed / experimental Go engine with Lifetra bridge.
 
 Contributions should preserve the narrow claim ceiling: make the protocol more independently verifiable before making it more ambitious.
 
