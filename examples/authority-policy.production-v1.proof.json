@@ -1,0 +1,7 @@
+{
+  "protocol": "mirror.authority-policy.proof.v0.1",
+  "policy_ref": "policy://liminal-rail/authority/production/v1",
+  "canonicalization": "mirror.authority-policy.v0.1",
+  "hash_algorithm": "sha256",
+  "policy_hash": "f8bdd14b870cc118e21c9bb0491ccf888063cb9991df87e8e9c607892e6c9b69"
+}

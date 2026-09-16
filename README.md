@@ -63,10 +63,12 @@ cmd/multiplex-station-bench/     v0.4 correlation/concurrency benchmark
 cmd/adaptive-routing-bench/      v0.5 backpressure benchmark
 cmd/fast-decision-demo/          v0.6 semantic-choice proof
 cmd/fast-decision-bench/         v0.6 local gate benchmark
+cmd/liminal-proof/               CAS-only proof verification CLI
 internal/metro/                  packet/route/receipt engine
 internal/decisionplane/          bounded System-One-shaped provider/gate
 internal/lifetrabridge/          proof/control contracts
 internal/lifetrastation/         process, multiplex, pool and adaptive routing
+internal/mirror/                 mirror boundary, replay, bundles, CAS
 protocol/                        JSON protocol schemas
 docs/                            architecture and claim ceilings
 ```
@@ -329,6 +331,51 @@ It is **not** a TypeSafe Jev benchmark, remote-model benchmark, LLM benchmark, L
 
 The provider interface is intentionally suitable for a future fast typed decision adapter, but v0.6 makes **no TypeSafe/Jev API compatibility claim**. See [`docs/fast-decision-plane-v0.6.md`](docs/fast-decision-plane-v0.6.md).
 
+## Experimental Mirror Boundary and proof-carrying rail
+
+The current branch adds a separate fail-closed proof path for agent reflection and external effects:
+
+```text
+belief / mirrors
+      |
+      v
+verified external receipt
+      |
+      v
+explicit executor authority
+      |
+      v
+ProofEnvelope
+      |
+      v
+ReplayVerifier
+      |
+      v
+EvidenceBundle
+      |
+      v
+CAS
+```
+
+The key boundaries are intentionally distinct:
+
+```text
+BELIEF != REFLECTION != EVIDENCE != VERIFIED_STATE
+VALID_RECEIPT != AUTHORITATIVE_RECEIPT
+POLICY_ID != POLICY_VERSION
+REPORTED_VERIFICATION != REPRODUCED_VERIFICATION
+REFERENCE != CONTENT
+```
+
+`EvidenceBundle` pins Packet, Route, Result, Receipt, AuthorityPolicy, ProofEnvelope, and ReplayReport by SHA-256. `FilesystemCAS` stores those exact bytes under `cas://sha256/<digest>` identities, and `liminal-proof` can verify the bundle using only the manifest and CAS directory.
+
+```bash
+go build -o liminal-proof ./cmd/liminal-proof
+./liminal-proof verify -bundle ./evidence-bundle.json -cas ./.cas
+```
+
+See `docs/MIRROR_BOUNDARY.md`, `docs/replay-verifier-v0.1.md`, `docs/evidence-bundle-v0.1.md`, and `docs/filesystem-cas-cli-v0.1.md`.
+
 ## Core artifacts
 
 - `protocol/metro.packet.v0.1.json` — bounded action envelope
@@ -342,14 +389,20 @@ The provider interface is intentionally suitable for a future fast typed decisio
 - `protocol/lifetra.station.request-envelope.v0.2.json` — request correlation envelope
 - `protocol/lifetra.station.response-envelope.v0.2.json` — correlated Lifetra response
 - `protocol/lifetra.station.error.v0.2.json` — correlated station error
+- `protocol/mirror.authority-policy.v0.1.json` — exact executor/effect authority policy
+- `protocol/mirror.proof-envelope.v0.1.json` — structured verified proof artifact
+- `protocol/mirror.replay-report.v0.1.json` — independent replay result
+- `protocol/mirror.evidence-bundle.v0.1.json` — content-addressed proof manifest
 - `internal/metro/metro.go` — Go packet/route/receipt core
 - `internal/decisionplane/decision.go` — provider contract, provenance validation, policy gate
 - `internal/decisionplane/static_provider.go` — deterministic proof/fallback provider
 - `internal/lifetrabridge/` — Lifetra proof/control bridge
 - `internal/lifetrastation/multiplex.go` — concurrent process transport
 - `internal/lifetrastation/adaptive.go` — admission + EWMA routing
+- `internal/mirror/` — mirror boundary, authority, replay, evidence bundle, and CAS
 - `cmd/fast-decision-demo/main.go` — AUTO_ROUTE / APPROVAL proof
 - `cmd/fast-decision-bench/main.go` — local Go decision-plane benchmark
+- `cmd/liminal-proof/main.go` — filesystem-CAS proof verifier
 - `docs/fast-decision-plane-v0.6.md` — v0.6 proof and claim ceiling
 
 ## Lifetra bridge
@@ -381,6 +434,9 @@ The bridge preserves `UNKNOWN`, rejects `BLOCK` and `REQUIRE_APPROVAL` as dispat
 9. **Backpressure must happen before ambiguous execution.** A saturated request may be refused pre-dispatch; a possibly executed request may not be casually sent elsewhere.
 10. **Semantic choice is bounded, not sovereign.** A fast provider may rank existing choices; it cannot expand allowed actions/targets.
 11. **Decision provenance binds the whole decision context.** Packet, semantic state, and choice set are hashed and revalidated before route creation.
+12. **Reflection is not evidence.** Internal agreement cannot satisfy an external-proof requirement.
+13. **A valid receipt is not automatically authoritative.** Proof authority is explicit and effect-scoped.
+14. **References never substitute for content verification.** CAS bytes are re-hashed before decode and replay.
 
 ## Non-goals
 
@@ -397,7 +453,8 @@ This repository does **not** yet claim:
 - that one admission cap is optimal across workloads;
 - that local control-plane throughput equals AI-agent or LLM throughput;
 - TypeSafe Jev API compatibility, Jev latency/accuracy, or any remote-model result;
-- that the default `0.98` confidence threshold is universally calibrated.
+- that the default `0.98` confidence threshold is universally calibrated;
+- that proof envelopes, replay reports, evidence bundles, or CAS refs are cryptographic signatures, timestamp authorities, or remote attestation.
 
 ## Run the demos and proofs
 
@@ -448,6 +505,14 @@ go run ./cmd/adaptive-routing-bench \
   -pool 4 -concurrency 64 -limits 2,8,16
 ```
 
+Verify a filesystem-CAS proof bundle:
+
+```bash
+go run ./cmd/liminal-proof verify \
+  -bundle ./evidence-bundle.json \
+  -cas ./.cas
+```
+
 Run Go invariants and race checks:
 
 ```bash
@@ -458,6 +523,8 @@ go test -race ./internal/decisionplane ./internal/lifetrastation
 ## Status
 
 `v0.6` — CI-verified bounded fast decision plane with packet/state/choice provenance binding, complete probabilistic-choice validation, System-2 escalation, side-effect approval gating, race-checked transport regressions, and measured local Go gate overhead.
+
+The Mirror Boundary / proof-carrying rail remains experimental until its branch CI receipts are green and the work is merged.
 
 Contributions should preserve the narrow claim ceiling: make each boundary independently verifiable before making the system more ambitious.
 

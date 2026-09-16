@@ -1,0 +1,66 @@
+name: Mirror Proof Fixture v0.1
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  mirror-proof:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Liminal Rail Metro
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+
+      - name: Require gofmt
+        run: |
+          unformatted="$(gofmt -l -- $(find . -path './_deps' -prune -o -name '*.go' -print))"
+          if [ -n "$unformatted" ]; then
+            echo "Go files require gofmt:" >&2
+            echo "$unformatted" >&2
+            gofmt -d -- $unformatted
+            exit 1
+          fi
+
+      - name: Go unit tests
+        run: go test ./...
+
+      - name: Mirror race detector
+        run: go test -race ./internal/mirror ./cmd/liminal-proof
+
+      - name: Build distributable proof package
+        run: |
+          rm -rf proof-package
+          mkdir -p proof-package
+          go build -o proof-package/liminal-proof ./cmd/liminal-proof
+          ./proof-package/liminal-proof fixture -out proof-package | tee proof-package/generate.txt
+
+          test -f proof-package/evidence-bundle.json
+          test -f proof-package/verify.sh
+          test "$(find proof-package/.cas/sha256 -type f | wc -l)" -eq 7
+          grep -q '^artifacts=7$' proof-package/generate.txt
+          grep -q '^replay=REPRODUCED$' proof-package/generate.txt
+
+      - name: Verify package exactly as a downloader would
+        run: |
+          bash proof-package/verify.sh | tee proof-package/verification.txt
+          grep -q '7/7 artifacts resolved and digests matched' proof-package/verification.txt
+          grep -q 'VERDICT: REPRODUCED' proof-package/verification.txt
+          sha256sum proof-package/evidence-bundle.json proof-package/liminal-proof > proof-package/SHA256SUMS
+          cat proof-package/verification.txt
+
+      - name: Upload mirror proof package
+        uses: actions/upload-artifact@v4
+        with:
+          name: liminal-rail-mirror-proof-v0.1
+          path: proof-package/
+          include-hidden-files: true
+          if-no-files-found: error

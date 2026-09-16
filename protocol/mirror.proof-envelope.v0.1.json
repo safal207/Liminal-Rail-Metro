@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:liminal-rail:mirror.proof-envelope:v0.1",
+  "title": "Liminal Rail Mirror Proof Envelope v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "claim",
+    "action_kind",
+    "receipt",
+    "authority",
+    "verification_status"
+  ],
+  "properties": {
+    "protocol": {
+      "const": "mirror.proof-envelope.v0.1"
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "action_id", "value_hash", "irreversible"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "action_id": {"type": "string", "minLength": 1},
+        "value_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "irreversible": {"type": "boolean"}
+      }
+    },
+    "action_kind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol",
+        "receipt_id",
+        "action_id",
+        "route_id",
+        "executor_id",
+        "status",
+        "input_hash",
+        "result_hash",
+        "result_ref"
+      ],
+      "properties": {
+        "protocol": {"const": "metro.receipt.v0.1"},
+        "receipt_id": {"type": "string", "minLength": 1},
+        "action_id": {"type": "string", "minLength": 1},
+        "route_id": {"type": "string", "minLength": 1},
+        "executor_id": {"type": "string", "minLength": 1},
+        "status": {"const": "SUCCEEDED"},
+        "input_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "result_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "result_ref": {"type": "string", "minLength": 1}
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_id", "policy_ref", "policy_hash", "action_kind", "executor_id"],
+      "properties": {
+        "policy_id": {"type": "string", "minLength": 1},
+        "policy_ref": {"type": "string", "minLength": 1},
+        "policy_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "action_kind": {"type": "string", "minLength": 1},
+        "executor_id": {"type": "string", "minLength": 1}
+      }
+    },
+    "verification_status": {
+      "const": "VERIFIED"
+    }
+  }
+}

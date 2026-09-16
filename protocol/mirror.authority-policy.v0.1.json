@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:liminal-rail:mirror.authority-policy:v0.1",
+  "title": "Liminal Rail Mirror Authority Policy v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "id",
+    "policy_ref",
+    "executors_by_action"
+  ],
+  "properties": {
+    "protocol": {
+      "const": "mirror.authority-policy.v0.1"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "policy_ref": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Durable logical reference to the versioned policy artifact."
+    },
+    "executors_by_action": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "description": "Exact action-kind to authoritative executor bindings. Missing rules deny by default."
+    }
+  }
+}

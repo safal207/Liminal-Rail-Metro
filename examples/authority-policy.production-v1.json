@@ -1,0 +1,13 @@
+{
+  "protocol": "mirror.authority-policy.v0.1",
+  "id": "production-authority-v1",
+  "policy_ref": "policy://liminal-rail/authority/production/v1",
+  "executors_by_action": {
+    "code.implement": [
+      "code-agent"
+    ],
+    "payment.capture": [
+      "payments-agent"
+    ]
+  }
+}
