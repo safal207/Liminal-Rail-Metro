@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liminal-rail.local/protocol/trust.policy.v1.0.json",
+  "title": "Liminal Trust Policy v1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "policy_id", "requirements", "policy_hash"],
+  "properties": {
+    "protocol": {"const": "liminal.trust-policy.v1.0"},
+    "policy_id": {"type": "string", "minLength": 1},
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["external_identity", "portable_publication", "hardware_backed", "remote_hardware_attestation"],
+      "properties": {
+        "external_identity": {"type": "boolean"},
+        "portable_publication": {"type": "boolean"},
+        "hardware_backed": {"type": "boolean"},
+        "remote_hardware_attestation": {"type": "boolean"}
+      }
+    },
+    "policy_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}
