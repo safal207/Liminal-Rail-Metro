@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:liminal-rail:adaptive.authority:v0.1",
+  "title": "Liminal Adaptive Authority v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "authority_id",
+    "epoch",
+    "allowed_actions",
+    "authority_hash"
+  ],
+  "properties": {
+    "protocol": { "const": "liminal.adaptive.authority.v0.1" },
+    "authority_id": { "type": "string", "minLength": 1 },
+    "epoch": { "type": "string", "minLength": 1 },
+    "allowed_actions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Canonical lexically sorted action allow-list for this authority epoch."
+    },
+    "authority_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 content hash over protocol, authority_id, epoch and the canonical allowed_actions list."
+    }
+  }
+}
