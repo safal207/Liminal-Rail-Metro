@@ -14,6 +14,7 @@ type demoProof struct {
 	Protocol             string                   `json:"protocol"`
 	SafeDecision         decisionplane.Decision   `json:"safe_decision"`
 	SafeGate             decisionplane.GateResult `json:"safe_gate"`
+	SideEffectDecision   decisionplane.Decision   `json:"side_effect_decision"`
 	SideEffectGate       decisionplane.GateResult `json:"side_effect_gate"`
 	SelectedTarget       string                   `json:"selected_target"`
 	ProviderWireContract string                   `json:"provider_wire_contract"`
@@ -33,11 +34,12 @@ func main() {
 		{ID: "code", Target: "code-agent", Label: "Code"},
 		{ID: "qa", Target: "qa-agent", Label: "QA"},
 	}
-	request, err := decisionplane.NewRequest(packet, "fast-decision-demo-1", map[string]any{
+	state := map[string]any{
 		"goal":        packet.Goal,
 		"action_kind": packet.Action.Kind,
 		"stage":       "implementation",
-	}, choices)
+	}
+	request, err := decisionplane.NewRequest(packet, "fast-decision-demo-1", state, choices)
 	fatal(err)
 
 	provider := decisionplane.StaticProvider{
@@ -60,16 +62,34 @@ func main() {
 
 	sideEffectPacket := packet
 	sideEffectPacket.Constraints.SideEffect = true
-	sideEffectGate, err := decisionplane.ApplyDecision(sideEffectPacket, request, decision, policy)
+	sideEffectRequest, err := decisionplane.NewRequest(
+		sideEffectPacket,
+		"fast-decision-demo-side-effect-1",
+		state,
+		choices,
+	)
+	fatal(err)
+	sideEffectDecision, err := provider.Decide(context.Background(), sideEffectRequest)
+	fatal(err)
+	sideEffectGate, err := decisionplane.ApplyDecision(
+		sideEffectPacket,
+		sideEffectRequest,
+		sideEffectDecision,
+		policy,
+	)
 	fatal(err)
 	if sideEffectGate.Route != nil || sideEffectGate.Disposition != decisionplane.DispositionRequireApproval {
 		fatal(fmt.Errorf("side-effecting decision escaped approval gate: %#v", sideEffectGate))
+	}
+	if sideEffectDecision.PacketHash == decision.PacketHash {
+		fatal(fmt.Errorf("safe and side-effecting packets unexpectedly share packet_hash"))
 	}
 
 	proof := demoProof{
 		Protocol:             "liminal.rail.fast-decision-proof.v0.6",
 		SafeDecision:         decision,
 		SafeGate:             safeGate,
+		SideEffectDecision:   sideEffectDecision,
 		SideEffectGate:       sideEffectGate,
 		SelectedTarget:       safeGate.Route.SelectedTarget,
 		ProviderWireContract: "provider-agnostic System-One-shaped typed probabilistic choice; no TypeSafe/Jev API compatibility claim",
