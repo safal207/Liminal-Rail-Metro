@@ -57,20 +57,20 @@ type proofFlags struct {
 }
 
 type proof struct {
-	Protocol                   string                    `json:"protocol"`
-	Evidence                   trustpolicy.Evidence      `json:"evidence"`
-	AllowedPolicy              trustpolicy.Policy        `json:"allowed_policy"`
-	AllowedDecision            trustpolicy.Decision      `json:"allowed_decision"`
-	DeniedPolicy               trustpolicy.Policy        `json:"denied_policy"`
-	DeniedDecision             trustpolicy.Decision      `json:"denied_decision"`
-	AllowedResult              map[string]any            `json:"allowed_result"`
-	AllowedReceipt             metro.Receipt             `json:"allowed_receipt"`
-	AllowedObservation         lifetrabridge.Observation `json:"allowed_observation"`
-	SourceJournalSHA256Before  string                    `json:"source_journal_sha256_before"`
-	SourceJournalSHA256After   string                    `json:"source_journal_sha256_after"`
-	LearningLog                string                    `json:"learning_log"`
-	Flags                      proofFlags                `json:"flags"`
-	Claim                      string                    `json:"claim"`
+	Protocol                  string                    `json:"protocol"`
+	Evidence                  trustpolicy.Evidence      `json:"evidence"`
+	AllowedPolicy             trustpolicy.Policy        `json:"allowed_policy"`
+	AllowedDecision           trustpolicy.Decision      `json:"allowed_decision"`
+	DeniedPolicy              trustpolicy.Policy        `json:"denied_policy"`
+	DeniedDecision            trustpolicy.Decision      `json:"denied_decision"`
+	AllowedResult             map[string]any            `json:"allowed_result"`
+	AllowedReceipt            metro.Receipt             `json:"allowed_receipt"`
+	AllowedObservation        lifetrabridge.Observation `json:"allowed_observation"`
+	SourceJournalSHA256Before string                    `json:"source_journal_sha256_before"`
+	SourceJournalSHA256After  string                    `json:"source_journal_sha256_after"`
+	LearningLog               string                    `json:"learning_log"`
+	Flags                     proofFlags                `json:"flags"`
+	Claim                     string                    `json:"claim"`
 }
 
 func main() {
