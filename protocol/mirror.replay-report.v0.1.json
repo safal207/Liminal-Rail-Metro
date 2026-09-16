@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:liminal-rail:mirror.replay-report:v0.1",
+  "title": "Liminal Rail Mirror Replay Report v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "status",
+    "claim_id",
+    "action_id",
+    "checks"
+  ],
+  "properties": {
+    "protocol": {
+      "const": "mirror.replay-report.v0.1"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["REPRODUCED", "REJECTED"]
+    },
+    "claim_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "action_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "passed"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "passed": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "rejection_reason": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "REJECTED"
+          }
+        }
+      },
+      "then": {
+        "required": ["rejection_reason"]
+      }
+    }
+  ]
+}
