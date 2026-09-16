@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:liminal-rail:adaptive.experience:v0.1",
+  "title": "Liminal Adaptive Experience v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "experience_id",
+    "action_id",
+    "route_id",
+    "receipt_id",
+    "receipt_result_hash",
+    "context",
+    "context_key",
+    "selected_action",
+    "reward",
+    "reward_unit",
+    "policy_stats_before",
+    "policy_stats_after",
+    "measured_at"
+  ],
+  "properties": {
+    "protocol": { "const": "liminal.adaptive.experience.v0.1" },
+    "experience_id": { "type": "string", "minLength": 1 },
+    "action_id": { "type": "string", "minLength": 1 },
+    "route_id": { "type": "string", "minLength": 1 },
+    "receipt_id": { "type": "string", "minLength": 1 },
+    "receipt_result_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workload", "cpu_class", "load_class", "memory_class"],
+      "properties": {
+        "workload": { "type": "string", "minLength": 1 },
+        "cpu_class": { "type": "string", "minLength": 1 },
+        "load_class": { "type": "string", "minLength": 1 },
+        "memory_class": { "type": "string", "minLength": 1 }
+      }
+    },
+    "context_key": { "type": "string", "pattern": "^ctx-[a-f0-9]{16}$" },
+    "selected_action": { "type": "string", "minLength": 1 },
+    "reward": { "type": "number" },
+    "reward_unit": { "type": "string", "minLength": 1 },
+    "policy_stats_before": { "$ref": "#/$defs/policyStats" },
+    "policy_stats_after": { "$ref": "#/$defs/policyStats" },
+    "previous_experience_ref": { "type": "string", "minLength": 1 },
+    "measured_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "actionStat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "mean_reward"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "mean_reward": { "type": "number" }
+      }
+    },
+    "policyStats": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/actionStat" }
+    }
+  }
+}
