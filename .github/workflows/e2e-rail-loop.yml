@@ -1,0 +1,40 @@
+name: E2E Rail Loop
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  go-rust-go:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Liminal Rail Metro
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Checkout proven Lifetra station
+        uses: actions/checkout@v4
+        with:
+          repository: safal207/Lifetra
+          ref: 80fc633e00c863aeb6505f008c43840ca6445579
+          path: _deps/Lifetra
+
+      - name: Go unit tests
+        run: go test ./...
+
+      - name: Run Go -> Rust -> Go loop
+        run: |
+          go run ./cmd/rail-loop-demo -lifetra-dir ./_deps/Lifetra > rail-loop-proof.json
+          grep -q '"cross_runtime_loop": "PASS"' rail-loop-proof.json
+          grep -q '"final_target": "qa-agent"' rail-loop-proof.json
+          cat rail-loop-proof.json
