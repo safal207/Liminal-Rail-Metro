@@ -12,9 +12,9 @@ func portableEvidence(t *testing.T) Evidence {
 		PortablePublicationVerified: true,
 		HardwareBacked:              false,
 		RemoteHardwareAttestation:   false,
-		SourceProofHash:              testHash,
-		DiscoveryHash:                otherHash,
-		PortableProofHash:            testHash,
+		SourceProofHash:             testHash,
+		DiscoveryHash:               otherHash,
+		PortableProofHash:           testHash,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +41,7 @@ func TestPortableExternalPolicyAllows(t *testing.T) {
 
 func TestHardwareCriticalPolicyFailsClosed(t *testing.T) {
 	p, err := NewPolicy("hardware-critical", Requirements{
-		ExternalIdentity:           true,
+		ExternalIdentity:          true,
 		PortablePublication:       true,
 		HardwareBacked:            true,
 		RemoteHardwareAttestation: true,
