@@ -1,0 +1,48 @@
+{
+  "metro_receipt": {
+    "protocol": "metro.receipt.v0.1",
+    "receipt_id": "receipt-action-001",
+    "action_id": "action-001",
+    "route_id": "route-action-001",
+    "executor_id": "code-agent",
+    "status": "SUCCEEDED",
+    "hash_algorithm": "sha256",
+    "input_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "result_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "result_ref": "artifact://build-001",
+    "started_at": "2026-09-16T13:00:00Z",
+    "completed_at": "2026-09-16T13:00:01Z"
+  },
+  "lifetra_observation": {
+    "protocol": "lifetra.observation.v0.1",
+    "observation_id": "observation-action-001",
+    "action_id": "action-001",
+    "receipt_id": "receipt-action-001",
+    "receipt_status": "SUCCEEDED",
+    "receipt_hash": "c9b9efd8fc5bc1dc54d1180570870b0986e2c981ab3bee27e06c7111af3a27a6",
+    "hash_algorithm": "sha256",
+    "proof_refs": ["metro-receipt://receipt-action-001"],
+    "previous_bead_ref": "lifetra-bead://bead-001",
+    "observed_at": "2026-09-16T13:00:01Z"
+  },
+  "lifetra_decision": {
+    "protocol": "lifetra.decision.v0.1",
+    "decision_id": "decision-001",
+    "source_observation_id": "observation-action-001",
+    "source_receipt_ref": "metro-receipt://receipt-action-001",
+    "caused_by_action_id": "action-001",
+    "source_bead_ref": "lifetra-bead://bead-002",
+    "verdict": "ALLOW",
+    "authority_proof_ref": "lifetra-authority://ticket-001",
+    "next_action": {
+      "action_id": "action-002",
+      "goal": "Verify the produced artifact.",
+      "kind": "qa.verify",
+      "inputs": { "artifact_ref": "artifact://build-001" },
+      "allowed_targets": ["qa-agent"],
+      "timeout_ms": 5000,
+      "side_effect": false
+    },
+    "decided_at": "2026-09-16T13:01:00Z"
+  }
+}
