@@ -1,6 +1,8 @@
 package mirror
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -89,11 +91,7 @@ func VerifyEvidenceBundleFromCAS(bundle EvidenceBundle, resolver CASResolver) (R
 		if err != nil {
 			return ReplayReport{}, fmt.Errorf("resolve %q: %w", entry.Kind, err)
 		}
-		digest, err := digestBytes(content)
-		if err != nil {
-			return ReplayReport{}, fmt.Errorf("hash resolved %q: %w", entry.Kind, err)
-		}
-		if digest != entry.Digest {
+		if digestRaw(content) != entry.Digest {
 			return ReplayReport{}, fmt.Errorf("resolved artifact %q digest mismatch", entry.Kind)
 		}
 		resolved[entry.Kind] = content
@@ -143,12 +141,9 @@ func VerifyEvidenceBundleFromCAS(bundle EvidenceBundle, resolver CASResolver) (R
 	return replayed, nil
 }
 
-func digestBytes(content []byte) (string, error) {
-	var raw any
-	if err := json.Unmarshal(content, &raw); err != nil {
-		return "", err
-	}
-	return digestJSON(raw)
+func digestRaw(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])
 }
 
 func artifactDigest(bundle EvidenceBundle, kind string) string {
