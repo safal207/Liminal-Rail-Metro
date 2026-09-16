@@ -6,9 +6,6 @@ on:
       - main
   pull_request:
 
-permissions:
-  contents: write
-
 jobs:
   persistent-station:
     runs-on: ubuntu-latest
@@ -16,8 +13,6 @@ jobs:
     steps:
       - name: Checkout Liminal Rail Metro
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -35,24 +30,15 @@ jobs:
           ref: 61b9d7ecdb59cea5a7b89675fdf5bd8c49bd6b55
           path: _deps/Lifetra
 
-      - name: Canonicalize Go formatting
+      - name: Require gofmt
         run: |
           files="$(find . -path './_deps' -prune -o -name '*.go' -print)"
           unformatted="$(gofmt -l -- $files)"
           if [ -n "$unformatted" ]; then
-            echo "Applying gofmt to:"
-            echo "$unformatted"
-            gofmt -w -- $unformatted
-            if [ "${{ github.event_name }}" != "pull_request" ]; then
-              echo "Unexpected unformatted Go on a non-PR run" >&2
-              git diff --check
-              exit 1
-            fi
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add -- $unformatted
-            git commit -m "style: apply gofmt"
-            git push origin HEAD:"${{ github.head_ref }}"
+            echo "Go files require gofmt:" >&2
+            echo "$unformatted" >&2
+            gofmt -d -- $unformatted
+            exit 1
           fi
 
       - name: Go unit tests
