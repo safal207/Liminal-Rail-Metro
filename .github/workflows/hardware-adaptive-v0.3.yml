@@ -1,0 +1,35 @@
+name: Hardware Adaptive v0.3
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  durable-replay-proof:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Unit tests
+        run: go test ./...
+
+      - name: Run durable adaptive proof
+        run: |
+          go run ./cmd/hardware-adaptive-v03-demo
+          grep -q '"state_preserved": true' hardware-adaptive-proof-v0.3.json
+          grep -q '"duplicate_was_noop": true' hardware-adaptive-proof-v0.3.json
+          grep -q '"unverified_was_rejected": true' hardware-adaptive-proof-v0.3.json
+          test "$(wc -l < hardware-adaptive-v0.3.journal.jsonl)" -eq 12
+
+      - name: Show proof summary
+        run: |
+          tail -n 1 hardware-adaptive-v0.3.journal.jsonl
+          cat hardware-adaptive-proof-v0.3.json
