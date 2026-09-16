@@ -49,6 +49,23 @@ type ProcessConfig struct {
 	Timeout time.Duration
 }
 
+type lockedBuffer struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (buffer *lockedBuffer) Write(payload []byte) (int, error) {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return buffer.buffer.Write(payload)
+}
+
+func (buffer *lockedBuffer) String() string {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return buffer.buffer.String()
+}
+
 type muxResult struct {
 	decision lifetrabridge.Decision
 	err      error
@@ -67,7 +84,7 @@ type MultiplexProcess struct {
 	cmd        *exec.Cmd
 	stdin      io.WriteCloser
 	scanner    *bufio.Scanner
-	stderr     bytes.Buffer
+	stderr     lockedBuffer
 	pending    map[string]pendingRequest
 	seen       map[string]struct{}
 	abandoned  map[string]struct{}
