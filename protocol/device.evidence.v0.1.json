@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:liminal-rail:device.evidence:v0.1",
+  "title": "Liminal Device Evidence v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "root_type",
+    "os",
+    "arch",
+    "go_version",
+    "logical_cpus",
+    "source_digests",
+    "device_fingerprint",
+    "runtime_fingerprint",
+    "observed_at"
+  ],
+  "properties": {
+    "protocol": { "const": "liminal.device.evidence.v0.1" },
+    "root_type": { "const": "software-observed" },
+    "os": { "type": "string", "minLength": 1 },
+    "arch": { "type": "string", "minLength": 1 },
+    "kernel_release": { "type": "string" },
+    "go_version": { "type": "string", "minLength": 1 },
+    "logical_cpus": { "type": "integer", "minimum": 1 },
+    "source_digests": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+      "description": "Only SHA-256 digests of observed host identifiers. Raw machine-id, product UUID, boot ID, and hostname values are not emitted."
+    },
+    "device_fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "runtime_fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "observed_at": { "type": "string", "format": "date-time" }
+  }
+}

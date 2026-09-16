@@ -1,0 +1,132 @@
+name: Hardware Adaptive v0.8
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  discovery-external-trust-proof:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.23.x
+          cache: false
+
+      - name: Require gofmt
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l -- $(find . -path './_deps' -prune -o -name '*.go' -print))"
+          if [ -n "$unformatted" ]; then
+            echo "Go files require gofmt:" >&2
+            echo "$unformatted" >&2
+            gofmt -d -- $unformatted
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: go test ./...
+
+      - name: Run discovery-bound adaptive proof
+        shell: bash
+        run: |
+          rm -f hardware-adaptive-v0.8.journal.jsonl hardware-adaptive-proof-v0.8.json
+          go run ./cmd/hardware-adaptive-v08-demo | tee hardware-adaptive-v0.8.log
+
+      - name: Verify proof invariants
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+
+          p = json.loads(Path('hardware-adaptive-proof-v0.8.json').read_text())
+          assert p['protocol'] == 'liminal.hardware-adaptive-proof.v0.8'
+          f = p['flags']
+          for key in [
+              'discovery_protocol_used',
+              'external_oidc_verified',
+              'raw_oidc_token_not_persisted',
+              'no_false_hardware_upgrade',
+              'fallback_matches_discovery',
+              'discovery_receipt_bound',
+              'discovery_proof_refs_present',
+              'adaptive_rounds_succeeded',
+              'oidc_not_provider_ready',
+              'hardware_candidates_not_ready',
+          ]:
+              assert f[key] is True, (key, f[key])
+
+          d = p['discovery']
+          assert d['protocol'] == 'liminal.attestation.discovery.v0.1'
+          assert d['selected_provider_id'] == 'software-observed-ed25519-v0.1'
+          assert d['selected_assurance_level'] == 'software-bound'
+          assert d['hardware_upgrade_selected'] is False
+          assert d['external_identity_verified'] is True
+          assert re.fullmatch(r'[a-f0-9]{64}', d['report_hash'])
+
+          external = d['external_identity']
+          assert external['protocol'] == 'liminal.attestation.external-identity.v0.1'
+          assert external['provider'] == 'github-actions-oidc'
+          assert external['issuer'] == 'https://token.actions.githubusercontent.com'
+          assert external['audience'] == 'liminal-rail-metro-v0.8'
+          assert external['algorithm'] == 'RS256'
+          assert external['signature_verified'] is True
+          assert re.fullmatch(r'[a-f0-9]{64}', external['token_hash'])
+          assert external['repository'] == 'safal207/Liminal-Rail-Metro'
+          assert external['runner_environment'] == 'github-hosted'
+          assert 'value' not in external and 'jwt' not in external and 'raw_token' not in external
+
+          probes = d['probes']
+          kinds = [x['kind'] for x in probes]
+          assert 'tpm2' in kinds and 'sev-snp' in kinds and 'tdx' in kinds and 'github-actions-oidc' in kinds
+          oidc = [x for x in probes if x['kind'] == 'github-actions-oidc'][0]
+          assert oidc['present'] is True
+          assert oidc['external_identity'] is True
+          assert oidc['hardware_backed'] is False
+          assert oidc['provider_ready'] is False
+          for probe in probes:
+              if probe['hardware_backed']:
+                  assert probe['provider_ready'] is False
+
+          trials = p['trials']
+          assert len(trials) == 6
+          for t in trials:
+              r = t['result']
+              assert r['attestation_discovery_hash'] == d['report_hash']
+              assert r['attestation_external_identity_verified'] is True
+              assert r['attestation_hardware_upgrade_selected'] is False
+              assert r['attestation_selected_provider_id'] == d['selected_provider_id']
+              refs = t['lifetra_observation']['proof_refs']
+              assert 'adaptive-attestation-discovery://sha256/' + d['report_hash'] in refs
+
+          raw = Path('hardware-adaptive-proof-v0.8.json').read_text()
+          # Raw GitHub OIDC JWTs begin with a JWT header segment and contain two dots.
+          assert 'eyJhbGciOiJSUzI1Ni' not in raw
+          lines = [x for x in Path(p['journal_path']).read_text().splitlines() if x.strip()]
+          assert len(lines) == 6
+          print('v0.8 discovery + external OIDC invariants: PASS')
+          PY
+
+      - name: Show proof summary
+        shell: bash
+        run: |
+          cat hardware-adaptive-v0.8.log
+          python3 -m json.tool hardware-adaptive-proof-v0.8.json | tail -n 180
+
+      - name: Upload proof artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hardware-adaptive-v0.8-proof
+          path: |
+            hardware-adaptive-proof-v0.8.json
+            hardware-adaptive-v0.8.journal.jsonl
+            hardware-adaptive-v0.8.log

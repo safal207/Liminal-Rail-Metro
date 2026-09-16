@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:liminal-rail:adaptive.reward-entry:v0.1",
+  "title": "Liminal Adaptive Durable Reward Entry v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "sequence",
+    "receipt",
+    "receipt_hash",
+    "result",
+    "experience",
+    "experience_hash",
+    "entry_hash",
+    "applied_at"
+  ],
+  "properties": {
+    "protocol": { "const": "liminal.adaptive.reward-entry.v0.1" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "receipt": { "type": "object" },
+    "receipt_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "result": { "type": "object" },
+    "experience": {
+      "type": "object",
+      "properties": {
+        "protocol": { "const": "liminal.adaptive.experience.v0.1" }
+      },
+      "required": ["protocol"]
+    },
+    "experience_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "previous_entry_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "entry_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "applied_at": { "type": "string", "format": "date-time" }
+  }
+}

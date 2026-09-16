@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:liminal-rail:device.attestation:v0.1",
+  "title": "Liminal Device Attestation v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "root_type",
+    "nonce",
+    "device_fingerprint",
+    "runtime_fingerprint",
+    "attestation_key_id",
+    "public_key_base64",
+    "signed_authority_hash",
+    "authority_issuer_key_id",
+    "journal_sequence",
+    "workload",
+    "context_key",
+    "issued_at",
+    "signature_base64",
+    "attestation_hash"
+  ],
+  "properties": {
+    "protocol": { "const": "liminal.device.attestation.v0.1" },
+    "root_type": { "const": "software-observed" },
+    "nonce": { "type": "string", "minLength": 16 },
+    "device_fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "runtime_fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "attestation_key_id": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "public_key_base64": { "type": "string", "minLength": 40 },
+    "signed_authority_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "authority_issuer_key_id": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "journal_sequence": { "type": "integer", "minimum": 0 },
+    "journal_head": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "workload": { "type": "string", "minLength": 1 },
+    "context_key": { "type": "string", "minLength": 1 },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "signature_base64": { "type": "string", "minLength": 80 },
+    "attestation_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}

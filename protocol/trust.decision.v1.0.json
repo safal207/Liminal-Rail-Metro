@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liminal-rail.local/protocol/trust.decision.v1.0.json",
+  "title": "Liminal Trust Decision v1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "policy_id", "policy_hash", "evidence_hash", "allowed", "decision_hash"],
+  "properties": {
+    "protocol": {"const": "liminal.trust-decision.v1.0"},
+    "policy_id": {"type": "string", "minLength": 1},
+    "policy_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "evidence_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "allowed": {"type": "boolean"},
+    "unmet": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": ["external_identity", "portable_publication", "hardware_backed", "remote_hardware_attestation"]
+      }
+    },
+    "decision_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

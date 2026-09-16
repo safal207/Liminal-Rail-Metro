@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/safal207/Liminal-Rail-Metro/protocol/attestation.discovery.v0.1.json",
+  "title": "Liminal Attestation Discovery v0.1",
+  "type": "object",
+  "required": [
+    "protocol",
+    "probes",
+    "selected_provider_id",
+    "selected_assurance_level",
+    "hardware_upgrade_selected",
+    "external_identity_verified",
+    "selection_reason",
+    "report_hash"
+  ],
+  "properties": {
+    "protocol": {"const": "liminal.attestation.discovery.v0.1"},
+    "probes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "source", "present", "provider_ready", "hardware_backed", "external_identity", "reason"],
+        "properties": {
+          "kind": {"type": "string", "minLength": 1},
+          "source": {"type": "string", "minLength": 1},
+          "present": {"type": "boolean"},
+          "provider_ready": {"type": "boolean"},
+          "hardware_backed": {"type": "boolean"},
+          "external_identity": {"type": "boolean"},
+          "reason": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "external_identity": {
+      "type": "object",
+      "required": ["protocol", "provider", "issuer", "audience", "subject", "key_id", "algorithm", "token_hash", "signature_verified", "verified_at"],
+      "properties": {
+        "protocol": {"const": "liminal.attestation.external-identity.v0.1"},
+        "provider": {"type": "string", "minLength": 1},
+        "issuer": {"type": "string", "format": "uri"},
+        "audience": {"type": "string", "minLength": 1},
+        "subject": {"type": "string", "minLength": 1},
+        "repository": {"type": "string"},
+        "repository_id": {"type": "string"},
+        "repository_owner_id": {"type": "string"},
+        "ref": {"type": "string"},
+        "sha": {"type": "string"},
+        "run_id": {"type": "string"},
+        "runner_environment": {"type": "string"},
+        "key_id": {"type": "string", "minLength": 1},
+        "algorithm": {"const": "RS256"},
+        "token_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "signature_verified": {"const": true},
+        "verified_at": {"type": "string", "format": "date-time"}
+      },
+      "additionalProperties": false
+    },
+    "selected_provider_id": {"type": "string", "minLength": 1},
+    "selected_assurance_level": {"type": "string", "minLength": 1},
+    "hardware_upgrade_selected": {"type": "boolean"},
+    "external_identity_verified": {"type": "boolean"},
+    "selection_reason": {"type": "string", "minLength": 1},
+    "report_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  },
+  "additionalProperties": false
+}

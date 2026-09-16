@@ -1,0 +1,125 @@
+name: Hardware Adaptive v0.7
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  provider-neutral-attestation:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+
+      - name: Require gofmt
+        run: |
+          unformatted="$(gofmt -l -- $(find . -path './_deps' -prune -o -name '*.go' -print))"
+          if [ -n "$unformatted" ]; then
+            echo "Go files require gofmt:" >&2
+            echo "$unformatted" >&2
+            gofmt -d -- $unformatted
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: go test ./...
+
+      - name: Run provider-neutral adaptive proof
+        run: |
+          rm -f hardware-adaptive-v0.7.journal.jsonl hardware-adaptive-proof-v0.7.json
+          go run ./cmd/hardware-adaptive-v07-demo | tee hardware-adaptive-v0.7.log
+
+      - name: Verify proof invariants
+        run: |
+          python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+
+          p = json.loads(Path('hardware-adaptive-proof-v0.7.json').read_text())
+          assert p['protocol'] == 'liminal.hardware-adaptive-proof.v0.7'
+
+          f = p['flags']
+          for key in [
+              'provider_interface_used',
+              'software_assurance_honest',
+              'provider_roundtrip_verified',
+              'stale_binding_rejected',
+              'wrong_provider_key_rejected',
+              'restart_state_preserved',
+              'generic_provider_refs_present',
+              'provider_metadata_receipt_bound',
+          ]:
+              assert f[key] is True, (key, f[key])
+
+          d = p['provider_descriptor']
+          assert d['protocol'] == 'liminal.attestation.provider.v0.1'
+          assert d['provider_id'] == 'software-observed-ed25519-v0.1'
+          assert d['root_type'] == 'software-observed'
+          assert d['assurance_level'] == 'software-bound'
+          assert d['hardware_backed'] is False
+          assert d['remote_verifiable'] is False
+
+          hex64 = re.compile(r'^[a-f0-9]{64}$')
+          anchor = p['provider_anchor']
+          assert anchor['descriptor'] == d
+          assert hex64.fullmatch(anchor['descriptor_hash'])
+          assert hex64.fullmatch(anchor['anchor_hash'])
+
+          evidence = p['provider_evidence']
+          assert evidence['descriptor'] == d
+          assert evidence['descriptor_hash'] == anchor['descriptor_hash']
+          assert hex64.fullmatch(evidence['evidence_hash'])
+
+          trials = p['trials']
+          assert len(trials) == 6
+          assert len({t['provider_binding']['nonce'] for t in trials}) == 6
+          assert len({t['provider_attestation']['attestation_hash'] for t in trials}) == 6
+          assert len({t['provider_attestation']['evidence_hash'] for t in trials}) == 1
+
+          for t in trials:
+              att = t['provider_attestation']
+              assert att['descriptor'] == d
+              assert att['descriptor_hash'] == anchor['descriptor_hash']
+              assert att['evidence_hash'] == evidence['evidence_hash']
+              result = t['result']
+              assert result['attestation_provider_id'] == d['provider_id']
+              assert result['attestation_assurance_level'] == 'software-bound'
+              assert result['attestation_hardware_backed'] is False
+              assert result['attestation_remote_verifiable'] is False
+              assert result['attestation_descriptor_hash'] == anchor['descriptor_hash']
+              assert result['provider_anchor_hash'] == anchor['anchor_hash']
+              assert result['provider_evidence_hash'] == att['evidence_hash']
+              assert result['provider_attestation_hash'] == att['attestation_hash']
+              refs = t['lifetra_observation']['proof_refs']
+              assert 'adaptive-attestation-provider://sha256/' + anchor['descriptor_hash'] in refs
+              assert 'adaptive-provider-anchor://sha256/' + anchor['anchor_hash'] in refs
+              assert 'adaptive-provider-evidence://sha256/' + att['evidence_hash'] in refs
+              assert 'adaptive-provider-attestation://sha256/' + att['attestation_hash'] in refs
+
+          lines = [line for line in Path(p['journal_path']).read_text().splitlines() if line.strip()]
+          assert len(lines) == 6
+          print('v0.7 provider-neutral attestation invariants: PASS')
+          PY
+
+      - name: Show proof summary
+        run: |
+          cat hardware-adaptive-v0.7.log
+          python3 -m json.tool hardware-adaptive-proof-v0.7.json | tail -n 140
+
+      - name: Upload proof artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hardware-adaptive-v0.7-proof
+          path: |
+            hardware-adaptive-proof-v0.7.json
+            hardware-adaptive-v0.7.journal.jsonl
+            hardware-adaptive-v0.7.log

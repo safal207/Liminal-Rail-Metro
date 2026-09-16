@@ -1,0 +1,119 @@
+name: Hardware Adaptive v0.5
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  signed-authority-rotation-proof:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Unit tests
+        run: go test ./...
+
+      - name: Run signed authority rotation proof
+        run: |
+          rm -f hardware-adaptive-v0.5-epoch1.journal.jsonl \
+                hardware-adaptive-v0.5-epoch2.journal.jsonl \
+                hardware-adaptive-proof-v0.5.json
+          go run ./cmd/hardware-adaptive-v05-demo | tee hardware-adaptive-v0.5.log
+
+      - name: Verify proof invariants
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = json.loads(Path('hardware-adaptive-proof-v0.5.json').read_text())
+          assert p['protocol'] == 'liminal.hardware-adaptive-proof.v0.5'
+
+          f = p['flags']
+          required_true = [
+              'root_signature_verified',
+              'pre_rotation_new_action_rejected',
+              'rotation_verified',
+              'rotation_anchor_matched',
+              'missing_rotation_rejected',
+              'tampered_rotation_rejected',
+              'unanchored_self_signed_rejected',
+              'issuer_key_rotated',
+              'newly_authorized_action_executed',
+              'restart_state_preserved',
+              'signed_proof_refs_present',
+          ]
+          for key in required_true:
+              assert f[key] is True, (key, f[key])
+          assert f['pre_rotation_changed_journal'] is False
+
+          chain = p['authority_chain']
+          assert chain['protocol'] == 'liminal.adaptive.authority-chain.v0.1'
+          assert len(chain['grants']) == 2
+          assert len(chain['rotations']) == 1
+          root_grant, next_grant = chain['grants']
+          rotation = chain['rotations'][0]
+          new_action = p['newly_authorized_action']
+
+          assert new_action not in root_grant['grant']['allowed_actions']
+          assert new_action in next_grant['grant']['allowed_actions']
+          assert root_grant['issuer_key_id'] != next_grant['issuer_key_id']
+          assert rotation['from_signed_authority_hash'] == root_grant['signed_authority_hash']
+          assert rotation['to_signed_authority_hash'] == next_grant['signed_authority_hash']
+          assert rotation['to_issuer_key_id'] == next_grant['issuer_key_id']
+
+          e1 = p['epoch1_trials']
+          e2 = p['epoch2_trials']
+          assert len(e1) == 6
+          assert len(e2) == len(next_grant['grant']['allowed_actions'])
+          assert rotation['source_journal_sequence'] == len(e1)
+
+          for t in e1:
+              assert t['result']['signed_authority_hash'] == root_grant['signed_authority_hash']
+              assert t['result']['authority_issuer_key_id'] == root_grant['issuer_key_id']
+              refs = t['lifetra_observation']['proof_refs']
+              assert 'adaptive-signed-authority://sha256/' + root_grant['signed_authority_hash'] in refs
+              assert 'adaptive-authority-signer://ed25519/sha256/' + root_grant['issuer_key_id'] in refs
+
+          rotation_ref = 'adaptive-authority-rotation://sha256/' + rotation['rotation_hash']
+          for t in e2:
+              assert t['result']['signed_authority_hash'] == next_grant['signed_authority_hash']
+              assert t['result']['authority_issuer_key_id'] == next_grant['issuer_key_id']
+              refs = t['lifetra_observation']['proof_refs']
+              assert 'adaptive-signed-authority://sha256/' + next_grant['signed_authority_hash'] in refs
+              assert 'adaptive-authority-signer://ed25519/sha256/' + next_grant['issuer_key_id'] in refs
+              assert rotation_ref in refs
+
+          assert any(t['route']['selected_target'] == new_action for t in e2)
+
+          j1 = [line for line in Path(p['epoch1_journal']).read_text().splitlines() if line.strip()]
+          j2 = [line for line in Path(p['epoch2_journal']).read_text().splitlines() if line.strip()]
+          assert len(j1) == len(e1)
+          assert len(j2) == len(e2)
+
+          print('v0.5 proof invariants: PASS')
+          PY
+
+      - name: Show proof summary
+        run: |
+          cat hardware-adaptive-v0.5.log
+          python3 -m json.tool hardware-adaptive-proof-v0.5.json | tail -n 120
+
+      - name: Upload proof artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hardware-adaptive-v0.5-proof
+          path: |
+            hardware-adaptive-proof-v0.5.json
+            hardware-adaptive-v0.5-epoch1.journal.jsonl
+            hardware-adaptive-v0.5-epoch2.journal.jsonl
+            hardware-adaptive-v0.5.log

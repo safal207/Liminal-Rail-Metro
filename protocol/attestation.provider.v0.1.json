@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:liminal-rail:attestation.provider:v0.1",
+  "title": "Liminal Attestation Provider Descriptor v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "provider_id",
+    "root_type",
+    "assurance_level",
+    "hardware_backed",
+    "remote_verifiable"
+  ],
+  "properties": {
+    "protocol": { "const": "liminal.attestation.provider.v0.1" },
+    "provider_id": { "type": "string", "minLength": 1 },
+    "root_type": { "type": "string", "minLength": 1 },
+    "assurance_level": { "type": "string", "minLength": 1 },
+    "hardware_backed": { "type": "boolean" },
+    "remote_verifiable": { "type": "boolean" }
+  }
+}
