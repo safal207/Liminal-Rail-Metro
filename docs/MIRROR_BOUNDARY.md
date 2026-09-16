@@ -112,6 +112,8 @@ The implementation is in `internal/mirror`.
 10. Authority policy without durable `policy_ref` -> reject.
 11. Semantically identical policy rules in a different order -> same policy hash.
 12. Changed authority rules under the same logical policy ref -> different policy hash.
+13. Structured proof envelope with mismatched claim/receipt/authority fields -> reject.
+14. Only a `VERIFIED` proof envelope may become external Mirror Gate evidence.
 
 ## Metro receipt integration
 
@@ -184,6 +186,47 @@ f8bdd14b870cc118e21c9bb0491ccf888063cb9991df87e8e9c607892e6c9b69
 ```
 
 This is the hash of the compact canonical representation produced by `AuthorityPolicy.CanonicalJSON()`, not the byte-for-byte hash of the pretty-printed example file.
+
+## Structured proof envelope
+
+`mirror.proof-envelope.v0.1` moves the proof-critical fields out of free-form provenance strings and into a first-class artifact.
+
+```text
+ProofEnvelope
+├── claim
+│   ├── claim_id
+│   ├── action_id
+│   └── value_hash
+├── action_kind
+├── receipt
+│   ├── receipt_id
+│   ├── route_id
+│   ├── executor_id
+│   ├── input_hash
+│   ├── result_hash
+│   └── result_ref
+├── authority
+│   ├── policy_id
+│   ├── policy_ref
+│   ├── policy_hash
+│   ├── action_kind
+│   └── executor_id
+└── verification_status = VERIFIED
+```
+
+`BuildProofEnvelope(...)` is only allowed to emit an envelope after the full Metro verification + authority promotion path succeeds. `ProofEnvelope.Validate()` then checks the structural bindings again:
+
+- receipt `action_id` == claim `action_id`;
+- receipt `result_hash` == claim `value_hash`;
+- authority `action_kind` == envelope `action_kind`;
+- authority `executor_id` == receipt `executor_id`;
+- receipt and policy hashes are SHA-256 hex;
+- receipt status is `SUCCEEDED`;
+- envelope status is `VERIFIED`.
+
+A validated envelope can be converted to `mirror.Evidence` without parsing URI-like provenance entries. The JSON schema is `protocol/mirror.proof-envelope.v0.1.json`.
+
+The envelope is a verified-promotion artifact, not a signature. When the original packet, route, result, receipt, and policy are available, a downstream verifier can and should replay the stronger checks (`metro.Verify` plus policy hash verification) rather than treating the envelope alone as universal truth.
 
 ## Scope and limitation
 
