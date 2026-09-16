@@ -20,31 +20,31 @@ import (
 )
 
 type stationResult struct {
-	PID         int   `json:"pid"`
+	PID         int    `json:"pid"`
 	Completed   uint64 `json:"completed"`
 	Errors      uint64 `json:"errors"`
-	EWMAUS      int64 `json:"ewma_us"`
-	MaxInFlight int   `json:"max_in_flight"`
+	EWMAUS      int64  `json:"ewma_us"`
+	MaxInFlight int    `json:"max_in_flight"`
 }
 
 type scenario struct {
-	PoolSize                int             `json:"pool_size"`
-	MaxInFlightPerStation   int             `json:"max_in_flight_per_station"`
-	TotalCapacity           int             `json:"total_capacity"`
-	Concurrency             int             `json:"concurrency"`
-	Requests                int             `json:"requests"`
-	BackpressureEvents      uint64          `json:"backpressure_events"`
-	MaxObservedTotalInFlight int             `json:"max_observed_total_in_flight"`
-	MaxObservedStationInFlight int           `json:"max_observed_station_in_flight"`
-	ServiceP50US            int64           `json:"service_p50_us"`
-	ServiceP95US            int64           `json:"service_p95_us"`
-	ServiceP99US            int64           `json:"service_p99_us"`
-	EndToEndP50US           int64           `json:"end_to_end_p50_us"`
-	EndToEndP95US           int64           `json:"end_to_end_p95_us"`
-	EndToEndP99US           int64           `json:"end_to_end_p99_us"`
-	ThroughputPerSecond     float64         `json:"throughput_per_second"`
-	CompletedWithoutError   int             `json:"completed_without_error"`
-	Stations                []stationResult `json:"stations"`
+	PoolSize                   int             `json:"pool_size"`
+	MaxInFlightPerStation      int             `json:"max_in_flight_per_station"`
+	TotalCapacity              int             `json:"total_capacity"`
+	Concurrency                int             `json:"concurrency"`
+	Requests                   int             `json:"requests"`
+	BackpressureEvents         uint64          `json:"backpressure_events"`
+	MaxObservedTotalInFlight   int             `json:"max_observed_total_in_flight"`
+	MaxObservedStationInFlight int             `json:"max_observed_station_in_flight"`
+	ServiceP50US               int64           `json:"service_p50_us"`
+	ServiceP95US               int64           `json:"service_p95_us"`
+	ServiceP99US               int64           `json:"service_p99_us"`
+	EndToEndP50US              int64           `json:"end_to_end_p50_us"`
+	EndToEndP95US              int64           `json:"end_to_end_p95_us"`
+	EndToEndP99US              int64           `json:"end_to_end_p99_us"`
+	ThroughputPerSecond        float64         `json:"throughput_per_second"`
+	CompletedWithoutError      int             `json:"completed_without_error"`
+	Stations                   []stationResult `json:"stations"`
 }
 
 type benchmarkProof struct {
@@ -81,11 +81,11 @@ func main() {
 	fatal(err)
 
 	proof := benchmarkProof{
-		Protocol:    "liminal.rail.adaptive-backpressure-benchmark.v0.5",
-		StationPath: "Go adaptive admission/router -> request-correlated Rust Lifetra pool -> Go",
-		WorkerCount: workers,
+		Protocol:     "liminal.rail.adaptive-backpressure-benchmark.v0.5",
+		StationPath:  "Go adaptive admission/router -> request-correlated Rust Lifetra pool -> Go",
+		WorkerCount:  workers,
 		ClaimCeiling: "Measures local admission control, explicit backpressure, EWMA-informed routing, and bounded in-flight control requests on one runner. It does not measure LLM inference, remote networking, real tool execution, or end-to-end agent throughput.",
-		Verdict: "PASS",
+		Verdict:      "PASS",
 	}
 
 	for _, limit := range limits {
@@ -182,15 +182,11 @@ func runScenario(
 				if retryAfter < 10*time.Microsecond {
 					retryAfter = 10 * time.Microsecond
 				}
-				timer := time.NewTimer(retryAfter)
 				select {
 				case <-ctx.Done():
-					if !timer.Stop() {
-						<-timer.C
-					}
 					errCh <- fmt.Errorf("request %s exhausted retry window: %w", requestID, ctx.Err())
 					return
-				case <-timer.C:
+				case <-time.After(retryAfter):
 				}
 			}
 		}(index)
@@ -213,21 +209,21 @@ func runScenario(
 	serviceSorted := sortedDurations(serviceDurations)
 	endToEndSorted := sortedDurations(endToEndDurations)
 	result := scenario{
-		PoolSize:                     poolSize,
-		MaxInFlightPerStation:        limit,
-		TotalCapacity:                poolSize * limit,
-		Concurrency:                  concurrency,
-		Requests:                     requests,
-		BackpressureEvents:           backpressure.Load(),
-		MaxObservedTotalInFlight:     int(maxTotal.Load()),
-		MaxObservedStationInFlight:   int(maxStation.Load()),
-		ServiceP50US:                 percentile(serviceSorted, 0.50).Microseconds(),
-		ServiceP95US:                 percentile(serviceSorted, 0.95).Microseconds(),
-		ServiceP99US:                 percentile(serviceSorted, 0.99).Microseconds(),
-		EndToEndP50US:                percentile(endToEndSorted, 0.50).Microseconds(),
-		EndToEndP95US:                percentile(endToEndSorted, 0.95).Microseconds(),
-		EndToEndP99US:                percentile(endToEndSorted, 0.99).Microseconds(),
-		CompletedWithoutError:        requests,
+		PoolSize:                   poolSize,
+		MaxInFlightPerStation:      limit,
+		TotalCapacity:              poolSize * limit,
+		Concurrency:                concurrency,
+		Requests:                   requests,
+		BackpressureEvents:         backpressure.Load(),
+		MaxObservedTotalInFlight:   int(maxTotal.Load()),
+		MaxObservedStationInFlight: int(maxStation.Load()),
+		ServiceP50US:               percentile(serviceSorted, 0.50).Microseconds(),
+		ServiceP95US:               percentile(serviceSorted, 0.95).Microseconds(),
+		ServiceP99US:               percentile(serviceSorted, 0.99).Microseconds(),
+		EndToEndP50US:              percentile(endToEndSorted, 0.50).Microseconds(),
+		EndToEndP95US:              percentile(endToEndSorted, 0.95).Microseconds(),
+		EndToEndP99US:              percentile(endToEndSorted, 0.99).Microseconds(),
+		CompletedWithoutError:      requests,
 	}
 	if elapsed > 0 {
 		result.ThroughputPerSecond = float64(requests) / elapsed.Seconds()
