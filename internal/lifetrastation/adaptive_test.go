@@ -163,6 +163,60 @@ func TestAdaptivePoolExploresStationsAndTracksEWMA(t *testing.T) {
 	}
 }
 
+func TestAdaptivePoolRoutesAwayFromSlowerRealStation(t *testing.T) {
+	pool, err := StartAdaptivePoolWithConfigs(
+		[]ProcessConfig{
+			muxHelperConfigWithDelay("normal", 5*time.Millisecond),
+			muxHelperConfigWithDelay("normal", 0),
+		},
+		AdaptivePoolConfig{
+			MaxInFlightPerStation: 4,
+			InitialLatency:        time.Millisecond,
+			EWMAAlpha:             0.5,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := pool.Close(); err != nil {
+			t.Errorf("close adaptive pool: %v", err)
+		}
+	}()
+
+	// The first two sequential requests are intentional exploration: one per station.
+	for index := 0; index < 22; index++ {
+		actionID := fmt.Sprintf("heterogeneous-action-%02d", index)
+		decision, err := pool.Evaluate(
+			context.Background(),
+			fmt.Sprintf("heterogeneous-request-%02d", index),
+			muxTestRequest(actionID, fmt.Sprintf("heterogeneous-next-%02d", index)),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if decision.CausedByActionID != actionID {
+			t.Fatalf("request %d rebound to %q", index, decision.CausedByActionID)
+		}
+	}
+
+	snapshots := pool.Snapshots()
+	if len(snapshots) != 2 {
+		t.Fatalf("expected two station snapshots, got %d", len(snapshots))
+	}
+	slow := snapshots[0]
+	fast := snapshots[1]
+	if slow.Completed != 1 {
+		t.Fatalf("slow station should only receive its cold exploration sample, got %#v", slow)
+	}
+	if fast.Completed < 21 {
+		t.Fatalf("fast station should receive subsequent routed work, got %#v", fast)
+	}
+	if slow.EWMALatency <= fast.EWMALatency {
+		t.Fatalf("expected slow station EWMA > fast station EWMA, slow=%s fast=%s", slow.EWMALatency, fast.EWMALatency)
+	}
+}
+
 func TestAdaptivePoolRejectsRequestIDReuse(t *testing.T) {
 	pool, err := StartAdaptivePool(
 		muxHelperConfig("normal"),
