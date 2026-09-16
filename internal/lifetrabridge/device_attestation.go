@@ -7,9 +7,9 @@ import (
 )
 
 const (
-	DeviceAttestationRefPrefix = "adaptive-device-attestation://sha256/"
-	DeviceKeyRefPrefix         = "adaptive-device-key://ed25519/sha256/"
-	DeviceFingerprintRefPrefix = "adaptive-device-fingerprint://sha256/"
+	DeviceAttestationRefPrefix  = "adaptive-device-attestation://sha256/"
+	DeviceKeyRefPrefix          = "adaptive-device-key://ed25519/sha256/"
+	DeviceFingerprintRefPrefix  = "adaptive-device-fingerprint://sha256/"
 	RuntimeFingerprintRefPrefix = "adaptive-runtime-fingerprint://sha256/"
 )
 
