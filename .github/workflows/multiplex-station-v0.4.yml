@@ -1,0 +1,69 @@
+name: Multiplex Station v0.4
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  multiplex-station:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Liminal Rail Metro
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Checkout proven request-correlated Lifetra station
+        uses: actions/checkout@v4
+        with:
+          repository: safal207/Lifetra
+          ref: b8f1ff5ba4de78d3ab618c0886c5b528d40be15e
+          path: _deps/Lifetra
+
+      - name: Require gofmt
+        run: |
+          unformatted="$(gofmt -l -- $(find . -path './_deps' -prune -o -name '*.go' -print))"
+          if [ -n "$unformatted" ]; then
+            echo "Go files require gofmt:" >&2
+            echo "$unformatted" >&2
+            gofmt -d -- $unformatted
+            exit 1
+          fi
+
+      - name: Go unit tests
+        run: go test ./...
+
+      - name: Go race detector
+        run: go test -race ./internal/lifetrastation
+
+      - name: Build multiplex Lifetra station
+        run: cargo build --release --manifest-path _deps/Lifetra/Cargo.toml --example metro_station_mux
+
+      - name: Benchmark multiplex matrix
+        run: |
+          go run ./cmd/multiplex-station-bench \
+            -station-bin ./_deps/Lifetra/target/release/examples/metro_station_mux \
+            -requests 1024 \
+            -workers 16 \
+            -pools 1,4 \
+            -concurrency 1,4,16,64 > multiplex-station-proof.json
+          grep -q '"verdict": "PASS"' multiplex-station-proof.json
+          grep -q '"concurrency": 64' multiplex-station-proof.json
+          grep -q '"pool_size": 4' multiplex-station-proof.json
+          cat multiplex-station-proof.json
+
+      - name: Upload benchmark proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: multiplex-station-v0.4-proof
+          path: multiplex-station-proof.json
