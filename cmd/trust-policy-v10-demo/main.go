@@ -25,22 +25,22 @@ type sourceProof struct {
 		HardwareUpgradeSelected  bool   `json:"hardware_upgrade_selected"`
 	} `json:"discovery"`
 	Flags struct {
-		ExternalOIDCVerified    bool `json:"external_oidc_verified"`
+		ExternalOIDCVerified   bool `json:"external_oidc_verified"`
 		NoFalseHardwareUpgrade bool `json:"no_false_hardware_upgrade"`
 	} `json:"flags"`
 }
 
 type portableReceipt struct {
-	Protocol                         string `json:"protocol"`
-	PayloadSHA256                    string `json:"payload_sha256"`
-	SigstoreBundleSHA256             string `json:"sigstore_bundle_sha256"`
-	KeylessSigningCompleted          bool   `json:"keyless_signing_completed"`
-	IndependentCosignVerifyPassed    bool   `json:"independent_cosign_verify_passed"`
-	TransparencyLogVerifiedByCosign  bool   `json:"transparency_log_verified_by_cosign"`
-	SourceExternalIdentityVerified   bool   `json:"source_external_identity_verified"`
-	SourceHardwareUpgradeSelected    bool   `json:"source_hardware_upgrade_selected"`
-	HardwareBacked                   bool   `json:"hardware_backed"`
-	RemoteHardwareAttestation        bool   `json:"remote_hardware_attestation"`
+	Protocol                        string `json:"protocol"`
+	PayloadSHA256                   string `json:"payload_sha256"`
+	SigstoreBundleSHA256            string `json:"sigstore_bundle_sha256"`
+	KeylessSigningCompleted         bool   `json:"keyless_signing_completed"`
+	IndependentCosignVerifyPassed   bool   `json:"independent_cosign_verify_passed"`
+	TransparencyLogVerifiedByCosign bool   `json:"transparency_log_verified_by_cosign"`
+	SourceExternalIdentityVerified  bool   `json:"source_external_identity_verified"`
+	SourceHardwareUpgradeSelected   bool   `json:"source_hardware_upgrade_selected"`
+	HardwareBacked                  bool   `json:"hardware_backed"`
+	RemoteHardwareAttestation       bool   `json:"remote_hardware_attestation"`
 }
 
 type proofFlags struct {
@@ -57,20 +57,20 @@ type proofFlags struct {
 }
 
 type proof struct {
-	Protocol          string                  `json:"protocol"`
-	Evidence          trustpolicy.Evidence    `json:"evidence"`
-	AllowedPolicy     trustpolicy.Policy      `json:"allowed_policy"`
-	AllowedDecision   trustpolicy.Decision    `json:"allowed_decision"`
-	DeniedPolicy      trustpolicy.Policy      `json:"denied_policy"`
-	DeniedDecision    trustpolicy.Decision    `json:"denied_decision"`
-	AllowedResult     map[string]any          `json:"allowed_result"`
-	AllowedReceipt    metro.Receipt           `json:"allowed_receipt"`
-	AllowedObservation lifetrabridge.Observation `json:"allowed_observation"`
-	SourceJournalSHA256Before string          `json:"source_journal_sha256_before"`
-	SourceJournalSHA256After  string          `json:"source_journal_sha256_after"`
-	LearningLog       string                  `json:"learning_log"`
-	Flags             proofFlags              `json:"flags"`
-	Claim             string                  `json:"claim"`
+	Protocol                   string                    `json:"protocol"`
+	Evidence                   trustpolicy.Evidence      `json:"evidence"`
+	AllowedPolicy              trustpolicy.Policy        `json:"allowed_policy"`
+	AllowedDecision            trustpolicy.Decision      `json:"allowed_decision"`
+	DeniedPolicy               trustpolicy.Policy        `json:"denied_policy"`
+	DeniedDecision             trustpolicy.Decision      `json:"denied_decision"`
+	AllowedResult              map[string]any            `json:"allowed_result"`
+	AllowedReceipt             metro.Receipt             `json:"allowed_receipt"`
+	AllowedObservation         lifetrabridge.Observation `json:"allowed_observation"`
+	SourceJournalSHA256Before  string                    `json:"source_journal_sha256_before"`
+	SourceJournalSHA256After   string                    `json:"source_journal_sha256_after"`
+	LearningLog                string                    `json:"learning_log"`
+	Flags                      proofFlags                `json:"flags"`
+	Claim                      string                    `json:"claim"`
 }
 
 func main() {
@@ -97,19 +97,19 @@ func main() {
 		PortablePublicationVerified: portable.KeylessSigningCompleted && portable.IndependentCosignVerifyPassed && portable.TransparencyLogVerifiedByCosign,
 		HardwareBacked:              portable.HardwareBacked,
 		RemoteHardwareAttestation:   portable.RemoteHardwareAttestation,
-		SourceProofHash:              sourceHash,
-		DiscoveryHash:                source.Discovery.ReportHash,
-		PortableProofHash:            portable.SigstoreBundleSHA256,
+		SourceProofHash:             sourceHash,
+		DiscoveryHash:               source.Discovery.ReportHash,
+		PortableProofHash:           portable.SigstoreBundleSHA256,
 	})
 	must(err)
 
 	allowedPolicy, err := trustpolicy.NewPolicy("external-portable-required", trustpolicy.Requirements{
-		ExternalIdentity:     true,
+		ExternalIdentity:    true,
 		PortablePublication: true,
 	})
 	must(err)
 	deniedPolicy, err := trustpolicy.NewPolicy("hardware-critical", trustpolicy.Requirements{
-		ExternalIdentity:           true,
+		ExternalIdentity:          true,
 		PortablePublication:       true,
 		HardwareBacked:            true,
 		RemoteHardwareAttestation: true,
@@ -152,9 +152,9 @@ func main() {
 	must(err)
 
 	baseResult := map[string]any{
-		"effect_sha256": effectHash,
-		"duration_ms":  float64(duration.Microseconds()) / 1000,
-		"source_proof_sha256": sourceHash,
+		"effect_sha256":          effectHash,
+		"duration_ms":            float64(duration.Microseconds()) / 1000,
+		"source_proof_sha256":    sourceHash,
 		"portable_bundle_sha256": portable.SigstoreBundleSHA256,
 	}
 	allowedResult, err := adaptive.BindTrustDecisionResult(baseResult, allowedDecision)
@@ -221,20 +221,20 @@ func main() {
 	}
 
 	out := proof{
-		Protocol:                   "liminal.trust-policy-proof.v1.0",
-		Evidence:                   evidence,
-		AllowedPolicy:              allowedPolicy,
-		AllowedDecision:            allowedDecision,
-		DeniedPolicy:               deniedPolicy,
-		DeniedDecision:             deniedDecision,
-		AllowedResult:              allowedResult,
-		AllowedReceipt:             allowedReceipt,
-		AllowedObservation:         allowedObservation,
-		SourceJournalSHA256Before:  journalBefore,
-		SourceJournalSHA256After:   journalAfter,
-		LearningLog:                *learningPath,
-		Flags:                      flags,
-		Claim: "v1.0 evaluated content-addressed trust policy against externally verified and portably published evidence before invoking execution or learning callbacks. The external+portable policy allowed one bounded CPU effect and one learning append; the hardware-critical policy denied before either callback and produced no denied receipt. The source adaptive journal remained unchanged. This proves fail-closed trust-policy enforcement in the v1.0 guarded path, not that arbitrary future code cannot bypass the API or that the runtime is hardware-backed.",
+		Protocol:                  "liminal.trust-policy-proof.v1.0",
+		Evidence:                  evidence,
+		AllowedPolicy:             allowedPolicy,
+		AllowedDecision:           allowedDecision,
+		DeniedPolicy:              deniedPolicy,
+		DeniedDecision:            deniedDecision,
+		AllowedResult:             allowedResult,
+		AllowedReceipt:            allowedReceipt,
+		AllowedObservation:        allowedObservation,
+		SourceJournalSHA256Before: journalBefore,
+		SourceJournalSHA256After:  journalAfter,
+		LearningLog:               *learningPath,
+		Flags:                     flags,
+		Claim:                     "v1.0 evaluated content-addressed trust policy against externally verified and portably published evidence before invoking execution or learning callbacks. The external+portable policy allowed one bounded CPU effect and one learning append; the hardware-critical policy denied before either callback and produced no denied receipt. The source adaptive journal remained unchanged. This proves fail-closed trust-policy enforcement in the v1.0 guarded path, not that arbitrary future code cannot bypass the API or that the runtime is hardware-backed.",
 	}
 	b, err := json.MarshalIndent(out, "", "  ")
 	must(err)
