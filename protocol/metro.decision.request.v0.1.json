@@ -8,6 +8,7 @@
     "protocol",
     "request_id",
     "action_id",
+    "packet_hash",
     "state_hash",
     "choices",
     "choices_hash",
@@ -24,6 +25,10 @@
     "action_id": {
       "type": "string",
       "minLength": 1
+    },
+    "packet_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
     },
     "state": {
       "type": "object"
