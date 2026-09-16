@@ -61,18 +61,18 @@ type Provider interface {
 }
 
 type GatePolicy struct {
-	AutoRouteConfidence float64
-	MinTopMargin        float64
+	AutoRouteConfidence           float64
+	MinTopMargin                  float64
 	RequireApprovalForSideEffects bool
-	PolicyRef           string
+	PolicyRef                     string
 }
 
 func DefaultGatePolicy() GatePolicy {
 	return GatePolicy{
-		AutoRouteConfidence:             0.98,
-		MinTopMargin:                    0.15,
-		RequireApprovalForSideEffects:   true,
-		PolicyRef:                       "policy://decision-plane/v0.6/default",
+		AutoRouteConfidence:           0.98,
+		MinTopMargin:                  0.15,
+		RequireApprovalForSideEffects: true,
+		PolicyRef:                     "policy://decision-plane/v0.6/default",
 	}
 }
 
