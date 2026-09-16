@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	ReplayReportProtocol  = "mirror.replay-report.v0.1"
+	ReplayReportProtocol   = "mirror.replay-report.v0.1"
 	ReplayStatusReproduced = "REPRODUCED"
 	ReplayStatusRejected   = "REJECTED"
 )
