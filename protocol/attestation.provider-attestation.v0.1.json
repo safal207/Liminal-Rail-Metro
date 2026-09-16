@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:liminal-rail:attestation.provider-attestation:v0.1",
+  "title": "Liminal Provider Attestation Envelope v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "descriptor",
+    "descriptor_hash",
+    "evidence_hash",
+    "attestation_hash",
+    "payload"
+  ],
+  "properties": {
+    "protocol": { "const": "liminal.attestation.provider-attestation.v0.1" },
+    "descriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "provider_id", "root_type", "assurance_level", "hardware_backed", "remote_verifiable"],
+      "properties": {
+        "protocol": { "const": "liminal.attestation.provider.v0.1" },
+        "provider_id": { "type": "string", "minLength": 1 },
+        "root_type": { "type": "string", "minLength": 1 },
+        "assurance_level": { "type": "string", "minLength": 1 },
+        "hardware_backed": { "type": "boolean" },
+        "remote_verifiable": { "type": "boolean" }
+      }
+    },
+    "descriptor_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "evidence_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "attestation_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "payload": { "type": "object" }
+  }
+}
