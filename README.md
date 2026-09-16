@@ -19,15 +19,16 @@ The engine is intentionally designed around Go's strengths for this problem: lig
 Current layout:
 
 ```text
-cmd/metro-demo/          executable Metro proof
-cmd/lifetra-bridge-demo/ typed bridge proof
-cmd/rail-loop-demo/      real Go -> Rust -> Go loop
-internal/metro/          Go protocol engine
-internal/lifetrabridge/  proof/control contracts
-internal/lifetrastation/ external station process boundary
-protocol/                JSON protocol schemas
-examples/                protocol journeys
-docs/                    architecture and claim ceiling
+cmd/metro-demo/                 executable Metro proof
+cmd/lifetra-bridge-demo/        typed bridge proof
+cmd/rail-loop-demo/             real Go -> Rust -> Go loop
+cmd/persistent-station-bench/   warm-path station benchmark
+internal/metro/                 Go protocol engine
+internal/lifetrabridge/         proof/control contracts
+internal/lifetrastation/        one-shot + persistent station boundaries
+protocol/                       JSON protocol schemas
+examples/                       protocol journeys
+docs/                           architecture and claim ceilings
 ```
 
 ## v0.1 protocol seed
@@ -108,7 +109,44 @@ A successful proof ends with:
 }
 ```
 
-CI pins the Lifetra station to merge commit `80fc633e00c863aeb6505f008c43840ca6445579` so the proof cannot silently change when Lifetra evolves.
+v0.2 CI pins the Lifetra station to merge commit `80fc633e00c863aeb6505f008c43840ca6445579` so the proof cannot silently change when Lifetra evolves.
+
+## v0.3 Persistent Lifetra Station
+
+v0.3 removes per-decision Rust process startup from the control path.
+
+```text
+Go Metro
+   |
+   | request #1
+   v
++---------------------------+
+| persistent Lifetra / Rust |
+| same PID                  |
++---------------------------+
+   |
+   | decision #1
+   v
+Go validates binding
+   |
+   | request #2
+   v
+same Rust PID
+```
+
+The station uses one NDJSON request and one NDJSON response per line. The Go client deliberately serializes requests in v0.3; request correlation and concurrent multiplexing are a later protocol bead.
+
+Persistent-station CI pins Lifetra to merge commit `61b9d7ecdb59cea5a7b89675fdf5bd8c49bd6b55` and builds the Rust station as a release binary before measuring warm local-process round trips.
+
+Run the benchmark against a prebuilt Lifetra station:
+
+```bash
+go run ./cmd/persistent-station-bench \
+  -station-bin ../Lifetra/target/release/examples/metro_station_server \
+  -iterations 200
+```
+
+The benchmark reports process startup separately from warm average, p50, p95, min/max and derived sequential decisions per second. It does **not** claim LLM, network, or distributed-agent speed.
 
 ## Core artifacts
 
@@ -123,13 +161,13 @@ CI pins the Lifetra station to merge commit `80fc633e00c863aeb6505f008c43840ca64
 - `internal/metro/metro.go` — Go engine core
 - `internal/lifetrabridge/bridge.go` — Go bridge adapter
 - `internal/lifetrabridge/station.go` — station request types and validation
-- `internal/lifetrastation/process.go` — external process station adapter
-- `cmd/metro-demo/main.go` — executable Go demonstration
-- `cmd/lifetra-bridge-demo/main.go` — typed bridge demonstration
+- `internal/lifetrastation/process.go` — one-shot external process adapter
+- `internal/lifetrastation/persistent.go` — persistent NDJSON process adapter
+- `internal/lifetrastation/persistent_test.go` — process reuse and fail-closed tests
 - `cmd/rail-loop-demo/main.go` — executable Go -> Rust -> Go proof
-- `docs/architecture.md` — v0.1 architecture and claim ceiling
-- `docs/lifetra-bridge.md` — bridge boundary and invariants
+- `cmd/persistent-station-bench/main.go` — persistent station benchmark
 - `docs/e2e-rail-loop.md` — cross-runtime v0.2 proof
+- `docs/persistent-station-v0.3.md` — persistent boundary and benchmark claim ceiling
 
 ## Lifetra bridge
 
@@ -170,6 +208,9 @@ A Lifetra `ALLOW` decision can authorize creation of a new Metro packet, but per
 ### 7. Cross-runtime output is untrusted until rebound
 A station decision must be checked against the observation, action identity, and receipt that caused it before Go can create the next packet.
 
+### 8. Persistence must not weaken the proof boundary
+Keeping Rust alive is a transport optimization only. Each returned decision is validated exactly as if the station had been started for one request.
+
 ## Non-goals
 
 This repository does **not** yet claim:
@@ -181,9 +222,10 @@ This repository does **not** yet claim:
 - autonomous safety for high-risk actions;
 - safe redispatch after an `UNKNOWN` external effect;
 - durable orchestration across process crashes;
-- production RPC between Metro and Lifetra.
+- production RPC between Metro and Lifetra;
+- parallel persistent-station throughput.
 
-The current milestone is to make the handoff, evidence, control, and cross-runtime boundary explicit, small, and independently testable.
+The current milestone is to make the handoff, evidence, control, and cross-runtime boundary explicit, small, independently testable, and measurable without conflating process startup with warm decisions.
 
 ## Run the demos
 
@@ -205,6 +247,14 @@ Real Go -> Rust -> Go loop:
 go run ./cmd/rail-loop-demo -lifetra-dir ../Lifetra
 ```
 
+Persistent station benchmark:
+
+```bash
+go run ./cmd/persistent-station-bench \
+  -station-bin ../Lifetra/target/release/examples/metro_station_server \
+  -iterations 200
+```
+
 Run Go invariant tests:
 
 ```bash
@@ -213,7 +263,7 @@ go test ./...
 
 ## Status
 
-`v0.2` — experimental Go Metro engine with a proof-backed Rust Lifetra control station and a CI-verified cross-runtime loop.
+`v0.3` — persistent Lifetra station proof in progress on top of the CI-verified v0.2 Go -> Rust -> Go loop.
 
 Contributions should preserve the narrow claim ceiling: make the protocol more independently verifiable before making it more ambitious.
 
