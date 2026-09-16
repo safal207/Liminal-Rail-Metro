@@ -101,9 +101,6 @@ func main() {
 	}
 
 	first := trials[0]
-	freshNonce, err := deviceattest.RandomNonce()
-	must(err)
-	staleNonceRejected := learner.VerifyAttestation(first.Attestation, freshNonce, first.Context.Workload, first.ContextKey) != nil
 	staleJournalRejected := learner.VerifyAttestation(first.Attestation, first.Nonce, first.Context.Workload, first.ContextKey) != nil
 
 	currentState := adaptive.SenseHost()
@@ -125,6 +122,9 @@ func main() {
 	must(err)
 	goodAtt, err := learner.IssueAttestation(goodNonce, currentContext.Workload, currentKey)
 	must(err)
+	mismatchedNonce, err := deviceattest.RandomNonce()
+	must(err)
+	staleNonceRejected := learner.VerifyAttestation(goodAtt, mismatchedNonce, currentContext.Workload, currentKey) != nil
 	tampered := goodAtt
 	tampered.RuntimeFingerprint = strings.Repeat("0", 64)
 	tamperedEvidenceRejected := learner.VerifyAttestation(tampered, goodNonce, currentContext.Workload, currentKey) != nil
