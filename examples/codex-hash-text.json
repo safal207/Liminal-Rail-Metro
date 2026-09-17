@@ -1,0 +1,9 @@
+{
+  "protocol": "metro.codex.action.v0.1",
+  "request_id": "codex-decision-001",
+  "action_id": "codex-action-001",
+  "kind": "hash_text",
+  "text": "abc",
+  "side_effect": false,
+  "state": {"purpose": "local-adapter-proof"}
+}
