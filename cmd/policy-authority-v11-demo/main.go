@@ -21,50 +21,12 @@ import (
 type v10Proof struct {
 	Protocol string               `json:"protocol"`
 	Evidence trustpolicy.Evidence `json:"evidence"`
-	Flags    map[string]bool      `json:"flags"`
-	Claim    string               `json:"claim"`
 }
 
-type proofFlags struct {
-	RootManifestVerified              bool `json:"root_manifest_verified"`
-	OperationPolicyExactBound         bool `json:"operation_policy_exact_bound"`
-	WeakPolicySubstitutionRejected    bool `json:"weak_policy_substitution_rejected"`
-	WeakSubstitutionEffectNotCalled   bool `json:"weak_substitution_effect_not_called"`
-	WeakSubstitutionLearningNotCalled bool `json:"weak_substitution_learning_not_called"`
-	HardwareCriticalPolicyDenied      bool `json:"hardware_critical_policy_denied"`
-	HardwareDeniedEffectNotCalled     bool `json:"hardware_denied_effect_not_called"`
-	HardwareDeniedLearningNotCalled   bool `json:"hardware_denied_learning_not_called"`
-	TamperedManifestRejected          bool `json:"tampered_manifest_rejected"`
-	TamperedSignatureRejected         bool `json:"tampered_signature_rejected"`
-	RestartAuthorizationStable        bool `json:"restart_authorization_stable"`
-	ExplicitRotationVerified          bool `json:"explicit_rotation_verified"`
-	SilentWeakeningRotationRejected   bool `json:"silent_weakening_rotation_rejected"`
-	ExplicitWeakeningMarked           bool `json:"explicit_weakening_marked"`
-	AllowedReceiptAuthorityBound      bool `json:"allowed_receipt_authority_bound"`
-	LifetraAuthorityRefsPresent       bool `json:"lifetra_authority_refs_present"`
-	ExactlyOneLearningWrite           bool `json:"exactly_one_learning_write"`
-	V10EvidenceReused                 bool `json:"v1_0_evidence_reused"`
-}
-
-type proof struct {
-	Protocol              string                         `json:"protocol"`
-	SourceV10ProofSHA256  string                         `json:"source_v1_0_proof_sha256"`
-	Evidence              trustpolicy.Evidence           `json:"evidence"`
-	TrustRoot             policyauthority.TrustRoot      `json:"trust_root"`
-	RootSignedManifest    policyauthority.SignedManifest `json:"root_signed_manifest"`
-	CurrentSignedManifest policyauthority.SignedManifest `json:"current_signed_manifest"`
-	Rotation              policyauthority.Rotation       `json:"rotation"`
-	AllowedAuthorization  policyauthority.Authorization  `json:"allowed_authorization"`
-	HardwareAuthorization policyauthority.Authorization  `json:"hardware_authorization"`
-	AllowedDecision       trustpolicy.Decision           `json:"allowed_decision"`
-	HardwareDecision      trustpolicy.Decision           `json:"hardware_decision"`
-	AllowedResult         map[string]any                 `json:"allowed_result"`
-	AllowedReceipt        metro.Receipt                  `json:"allowed_receipt"`
-	AllowedObservation    lifetrabridge.Observation      `json:"allowed_observation"`
-	WeakeningRotation     policyauthority.Rotation       `json:"explicit_weakening_rotation"`
-	LearningLog           string                         `json:"learning_log"`
-	Flags                 proofFlags                     `json:"flags"`
-	Claim                 string                         `json:"claim"`
+type savedChain struct {
+	Root      policyauthority.TrustRoot        `json:"root"`
+	Manifests []policyauthority.SignedManifest `json:"manifests"`
+	Rotations []policyauthority.Rotation       `json:"rotations"`
 }
 
 func main() {
@@ -82,17 +44,14 @@ func main() {
 	sourceHash := fileSHA256(*sourcePath)
 
 	externalPortable, err := trustpolicy.NewPolicy("external-portable-required", trustpolicy.Requirements{
-		ExternalIdentity:    true,
-		PortablePublication: true,
+		ExternalIdentity: true, PortablePublication: true,
 	})
 	must(err)
 	hardwareCritical, err := trustpolicy.NewPolicy("hardware-critical", trustpolicy.Requirements{
-		ExternalIdentity:          true,
-		PortablePublication:       true,
-		HardwareBacked:            true,
-		RemoteHardwareAttestation: true,
+		ExternalIdentity: true, PortablePublication: true, HardwareBacked: true, RemoteHardwareAttestation: true,
 	})
 	must(err)
+
 	rootManifest, err := policyauthority.NewManifest("rail-policy-authority", 1, []policyauthority.Binding{
 		{OperationClass: "bounded.cpu.sha256", Policy: externalPortable},
 		{OperationClass: "hardware.critical", Policy: hardwareCritical},
@@ -121,32 +80,22 @@ func main() {
 
 	allowedGate, err := adaptive.NewPolicyAuthorityGateWithRequestedPolicy(resolver, "bounded.cpu.sha256", externalPortable, source.Evidence)
 	must(err)
-	allowedAuthorization := allowedGate.Authorization()
+	allowedAuth := allowedGate.Authorization()
 	allowedDecision, err := allowedGate.RequireAllowed()
 	must(err)
 
-	weakEffects := 0
-	weakLearning := 0
 	_, weakErr := adaptive.NewPolicyAuthorityGateWithRequestedPolicy(resolver, "hardware.critical", externalPortable, source.Evidence)
 	if weakErr == nil {
 		panic("weaker requested policy unexpectedly accepted")
 	}
-	_ = weakEffects
-	_ = weakLearning
+	weakEffects, weakLearning := 0, 0 // gate never constructed; callbacks cannot run
 
 	hardwareGate, err := adaptive.NewPolicyAuthorityGateWithRequestedPolicy(resolver, "hardware.critical", hardwareCritical, source.Evidence)
 	must(err)
-	hardwareAuthorization := hardwareGate.Authorization()
-	hardwareEffects := 0
-	hardwareDecision, hardwareErr := hardwareGate.Execute(func() error {
-		hardwareEffects++
-		return nil
-	})
-	hardwareLearning := 0
-	_, hardwareLearnErr := hardwareGate.Learn(func() error {
-		hardwareLearning++
-		return nil
-	})
+	hardwareAuth := hardwareGate.Authorization()
+	hardwareEffects, hardwareLearning := 0, 0
+	hardwareDecision, hardwareErr := hardwareGate.Execute(func() error { hardwareEffects++; return nil })
+	_, hardwareLearnErr := hardwareGate.Learn(func() error { hardwareLearning++; return nil })
 
 	var effectHash string
 	var effectDuration time.Duration
@@ -159,71 +108,49 @@ func main() {
 			sink = sha256.Sum256(payload)
 			copy(payload[:32], sink[:])
 		}
-		effectDuration = time.Since(start)
-		effectHash = hex.EncodeToString(sink[:])
+		effectDuration, effectHash = time.Since(start), hex.EncodeToString(sink[:])
 		return nil
 	})
 	must(err)
 
-	baseResult := map[string]any{
-		"effect_sha256":            effectHash,
-		"duration_ms":              float64(effectDuration.Microseconds()) / 1000,
-		"source_v1_0_proof_sha256": sourceHash,
-	}
-	allowedResult, err := adaptive.BindPolicyAuthorityDecisionResult(baseResult, allowedAuthorization, allowedDecision)
+	allowedResult, err := adaptive.BindPolicyAuthorityDecisionResult(map[string]any{
+		"effect_sha256": effectHash, "duration_ms": float64(effectDuration.Microseconds()) / 1000, "source_v1_0_proof_sha256": sourceHash,
+	}, allowedAuth, allowedDecision)
 	must(err)
-	packet := metro.NewPacket(
-		"policy-authority-v11-allowed",
-		"liminal-policy-authority-v1.1",
+	packet := metro.NewPacket("policy-authority-v11-allowed", "liminal-policy-authority-v1.1",
 		"Execute bounded CPU effect only under signed operation-policy authority.",
 		metro.Action{Kind: "policy-authority.cpu.sha256", Inputs: map[string]any{
-			"operation_class":    allowedAuthorization.OperationClass,
-			"authorization_hash": allowedAuthorization.AuthorizationHash,
-			"policy_hash":        allowedDecision.PolicyHash,
-			"evidence_hash":      allowedDecision.EvidenceHash,
-			"decision_hash":      allowedDecision.DecisionHash,
-		}},
-		[]string{"executor://policy-authority-local-cpu"},
-	)
+			"operation_class": allowedAuth.OperationClass, "authorization_hash": allowedAuth.AuthorizationHash,
+			"policy_hash": allowedDecision.PolicyHash, "evidence_hash": allowedDecision.EvidenceHash, "decision_hash": allowedDecision.DecisionHash,
+		}}, []string{"executor://policy-authority-local-cpu"})
 	packet.ContextRefs = []string{
-		lifetrabridge.PolicyAuthorityManifestRefPrefix + allowedAuthorization.SignedManifestHash,
-		lifetrabridge.PolicyAuthorityRotationRefPrefix + allowedAuthorization.RotationHash,
-		lifetrabridge.PolicyAuthorizationRefPrefix + allowedAuthorization.AuthorizationHash,
+		lifetrabridge.PolicyAuthorityManifestRefPrefix + allowedAuth.SignedManifestHash,
+		lifetrabridge.PolicyAuthorityRotationRefPrefix + allowedAuth.RotationHash,
+		lifetrabridge.PolicyAuthorizationRefPrefix + allowedAuth.AuthorizationHash,
 		lifetrabridge.TrustPolicyRefPrefix + allowedDecision.PolicyHash,
 		lifetrabridge.TrustEvidenceRefPrefix + allowedDecision.EvidenceHash,
 		lifetrabridge.TrustDecisionRefPrefix + allowedDecision.DecisionHash,
 	}
-	route := metro.Route{
-		Protocol:       metro.RouteProtocol,
-		RouteID:        "route-" + packet.ActionID,
-		ActionID:       packet.ActionID,
-		RouterID:       "liminal-policy-authority-v1.1",
-		DecisionMode:   "signed-policy-authority-gated",
-		SelectedTarget: "executor://policy-authority-local-cpu",
-		Candidates:     []metro.Candidate{{Target: "executor://policy-authority-local-cpu", Score: 1}},
-		PolicyRef:      lifetrabridge.PolicyAuthorizationRefPrefix + allowedAuthorization.AuthorizationHash,
-		DecidedAt:      metro.NowISO(),
-	}
-	allowedReceipt, err := metro.MakeSuccessReceipt(packet, route, allowedResult, lifetrabridge.PolicyAuthorizationRefPrefix+allowedAuthorization.AuthorizationHash)
+	route := metro.Route{Protocol: metro.RouteProtocol, RouteID: "route-" + packet.ActionID, ActionID: packet.ActionID,
+		RouterID: "liminal-policy-authority-v1.1", DecisionMode: "signed-policy-authority-gated",
+		SelectedTarget: "executor://policy-authority-local-cpu", Candidates: []metro.Candidate{{Target: "executor://policy-authority-local-cpu", Score: 1}},
+		PolicyRef: lifetrabridge.PolicyAuthorizationRefPrefix + allowedAuth.AuthorizationHash, DecidedAt: metro.NowISO()}
+	allowedReceipt, err := metro.MakeSuccessReceipt(packet, route, allowedResult, lifetrabridge.PolicyAuthorizationRefPrefix+allowedAuth.AuthorizationHash)
 	must(err)
 	must(metro.Verify(packet, route, allowedResult, allowedReceipt))
-	must(adaptive.ValidatePolicyAuthorityDecisionResultBinding(allowedResult, allowedAuthorization, allowedDecision))
+	must(adaptive.ValidatePolicyAuthorityDecisionResultBinding(allowedResult, allowedAuth, allowedDecision))
 	obs, err := lifetrabridge.ReceiptToObservation(allowedReceipt, "")
 	must(err)
 	obs, err = lifetrabridge.BindTrustProofRefs(obs, allowedDecision.PolicyHash, allowedDecision.EvidenceHash, allowedDecision.DecisionHash)
 	must(err)
-	obs, err = lifetrabridge.BindPolicyAuthorityProofRefs(obs, allowedAuthorization)
+	obs, err = lifetrabridge.BindPolicyAuthorityProofRefs(obs, allowedAuth)
 	must(err)
 
 	_ = os.Remove(*learningPath)
 	_, err = allowedGate.Learn(func() error {
-		return appendLearning(*learningPath, map[string]any{
-			"protocol":           "liminal.policy-authority-learning.v1.1",
-			"authorization_hash": allowedAuthorization.AuthorizationHash,
-			"decision_hash":      allowedDecision.DecisionHash,
-			"receipt_id":         allowedReceipt.ReceiptID,
-			"effect_sha256":      effectHash,
-		})
+		return appendLearning(*learningPath, map[string]any{"protocol": "liminal.policy-authority-learning.v1.1",
+			"authorization_hash": allowedAuth.AuthorizationHash, "decision_hash": allowedDecision.DecisionHash,
+			"receipt_id": allowedReceipt.ReceiptID, "effect_sha256": effectHash})
 	})
 	must(err)
 
@@ -231,27 +158,17 @@ func main() {
 	tamperedManifest.Manifest.Bindings[1].Policy = externalPortable
 	tamperedManifestRejected := tamperedManifest.SelfVerify() != nil
 	tamperedSignature := currentSigned
-	if len(tamperedSignature.Signature) < 4 {
-		panic("unexpectedly short signature")
-	}
 	tamperedSignature.Signature = tamperedSignature.Signature[:len(tamperedSignature.Signature)-4] + "AAAA"
 	tamperedSignatureRejected := tamperedSignature.SelfVerify() != nil
 
-	chainBytes, err := json.Marshal(struct {
-		Root      policyauthority.TrustRoot         `json:"root"`
-		Manifests []policyauthority.SignedManifest `json:"manifests"`
-		Rotations []policyauthority.Rotation       `json:"rotations"`
-	}{root, []policyauthority.SignedManifest{rootSigned, currentSigned}, []policyauthority.Rotation{rotation}})
+	chainBytes, err := json.Marshal(savedChain{Root: root,
+		Manifests: []policyauthority.SignedManifest{rootSigned, currentSigned}, Rotations: []policyauthority.Rotation{rotation}})
 	must(err)
-	var restored struct {
-		Root      policyauthority.TrustRoot         `json:"root"`
-		Manifests []policyauthority.SignedManifest `json:"manifests"`
-		Rotations []policyauthority.Rotation       `json:"rotations"`
-	}
+	var restored savedChain
 	must(json.Unmarshal(chainBytes, &restored))
 	restarted, err := policyauthority.OpenResolver(restored.Root, restored.Manifests, restored.Rotations)
 	must(err)
-	_, restartedAuthorization, err := restarted.Resolve("bounded.cpu.sha256")
+	_, restartedAuth, err := restarted.Resolve("bounded.cpu.sha256")
 	must(err)
 
 	weakManifest, err := policyauthority.NewManifest("rail-policy-authority", 2, []policyauthority.Binding{
@@ -266,60 +183,46 @@ func main() {
 	must(err)
 	must(explicitWeakening.Verify(rootSigned, weakSigned))
 
-	refsPresent := contains(obs.ProofRefs, lifetrabridge.PolicyAuthorityManifestRefPrefix+allowedAuthorization.SignedManifestHash) &&
-		contains(obs.ProofRefs, lifetrabridge.PolicyAuthorityRotationRefPrefix+allowedAuthorization.RotationHash) &&
-		contains(obs.ProofRefs, lifetrabridge.PolicyAuthorizationRefPrefix+allowedAuthorization.AuthorizationHash)
-	flags := proofFlags{
-		RootManifestVerified:              root.Validate() == nil && rootSigned.SelfVerify() == nil,
-		OperationPolicyExactBound:         allowedAuthorization.PolicyHash == externalPortable.PolicyHash && hardwareAuthorization.PolicyHash == hardwareCritical.PolicyHash,
-		WeakPolicySubstitutionRejected:    errors.Is(weakErr, adaptive.ErrPolicyAuthorityMismatch),
-		WeakSubstitutionEffectNotCalled:   weakEffects == 0,
-		WeakSubstitutionLearningNotCalled: weakLearning == 0,
-		HardwareCriticalPolicyDenied:      !hardwareDecision.Allowed && errors.Is(hardwareErr, adaptive.ErrTrustPolicyDenied) && errors.Is(hardwareLearnErr, adaptive.ErrTrustPolicyDenied),
-		HardwareDeniedEffectNotCalled:     hardwareEffects == 0,
-		HardwareDeniedLearningNotCalled:   hardwareLearning == 0,
-		TamperedManifestRejected:          tamperedManifestRejected,
-		TamperedSignatureRejected:         tamperedSignatureRejected,
-		RestartAuthorizationStable:        restartedAuthorization.AuthorizationHash == allowedAuthorization.AuthorizationHash,
-		ExplicitRotationVerified:          rotation.Verify(rootSigned, currentSigned) == nil && allowedAuthorization.Generation == 2 && allowedAuthorization.RotationHash == rotation.RotationHash,
-		SilentWeakeningRotationRejected:   silentWeakeningErr != nil,
-		ExplicitWeakeningMarked:           len(explicitWeakening.WeakenedOperations) == 1 && explicitWeakening.WeakenedOperations[0] == "hardware.critical" && explicitWeakening.AllowWeakening,
-		AllowedReceiptAuthorityBound:      adaptive.ValidatePolicyAuthorityDecisionResultBinding(allowedResult, allowedAuthorization, allowedDecision) == nil,
-		LifetraAuthorityRefsPresent:       refsPresent,
-		ExactlyOneLearningWrite:           nonEmptyLines(*learningPath) == 1,
-		V10EvidenceReused:                 source.Evidence.EvidenceHash == allowedDecision.EvidenceHash && source.Evidence.EvidenceHash == hardwareDecision.EvidenceHash,
+	refsPresent := contains(obs.ProofRefs, lifetrabridge.PolicyAuthorityManifestRefPrefix+allowedAuth.SignedManifestHash) &&
+		contains(obs.ProofRefs, lifetrabridge.PolicyAuthorityRotationRefPrefix+allowedAuth.RotationHash) &&
+		contains(obs.ProofRefs, lifetrabridge.PolicyAuthorizationRefPrefix+allowedAuth.AuthorizationHash)
+	flags := map[string]bool{
+		"root_manifest_verified":                root.Validate() == nil && rootSigned.SelfVerify() == nil,
+		"operation_policy_exact_bound":          allowedAuth.PolicyHash == externalPortable.PolicyHash && hardwareAuth.PolicyHash == hardwareCritical.PolicyHash,
+		"weak_policy_substitution_rejected":     errors.Is(weakErr, adaptive.ErrPolicyAuthorityMismatch),
+		"weak_substitution_effect_not_called":   weakEffects == 0,
+		"weak_substitution_learning_not_called": weakLearning == 0,
+		"hardware_critical_policy_denied":       !hardwareDecision.Allowed && errors.Is(hardwareErr, adaptive.ErrTrustPolicyDenied) && errors.Is(hardwareLearnErr, adaptive.ErrTrustPolicyDenied),
+		"hardware_denied_effect_not_called":     hardwareEffects == 0,
+		"hardware_denied_learning_not_called":   hardwareLearning == 0,
+		"tampered_manifest_rejected":            tamperedManifestRejected,
+		"tampered_signature_rejected":           tamperedSignatureRejected,
+		"restart_authorization_stable":          restartedAuth.AuthorizationHash == allowedAuth.AuthorizationHash,
+		"explicit_rotation_verified":            rotation.Verify(rootSigned, currentSigned) == nil && allowedAuth.Generation == 2 && allowedAuth.RotationHash == rotation.RotationHash,
+		"silent_weakening_rotation_rejected":    silentWeakeningErr != nil,
+		"explicit_weakening_marked":             len(explicitWeakening.WeakenedOperations) == 1 && explicitWeakening.WeakenedOperations[0] == "hardware.critical" && explicitWeakening.AllowWeakening,
+		"allowed_receipt_authority_bound":       adaptive.ValidatePolicyAuthorityDecisionResultBinding(allowedResult, allowedAuth, allowedDecision) == nil,
+		"lifetra_authority_refs_present":        refsPresent,
+		"exactly_one_learning_write":            nonEmptyLines(*learningPath) == 1,
+		"v1_0_evidence_reused":                  source.Evidence.EvidenceHash == allowedDecision.EvidenceHash && source.Evidence.EvidenceHash == hardwareDecision.EvidenceHash,
 	}
-
-	out := proof{
-		Protocol:              "liminal.policy-authority-proof.v1.1",
-		SourceV10ProofSHA256:  sourceHash,
-		Evidence:              source.Evidence,
-		TrustRoot:             root,
-		RootSignedManifest:    rootSigned,
-		CurrentSignedManifest: currentSigned,
-		Rotation:              rotation,
-		AllowedAuthorization:  allowedAuthorization,
-		HardwareAuthorization: hardwareAuthorization,
-		AllowedDecision:       allowedDecision,
-		HardwareDecision:      hardwareDecision,
-		AllowedResult:         allowedResult,
-		AllowedReceipt:        allowedReceipt,
-		AllowedObservation:    obs,
-		WeakeningRotation:     explicitWeakening,
-		LearningLog:           *learningPath,
-		Flags:                 flags,
-		Claim:                 "v1.1 binds operation classes to exact trust-policy hashes through a pinned Ed25519 policy-authority root and explicit signed manifest rotation. A caller-supplied weaker policy for hardware.critical is rejected before a TrustGate is constructed; the authority-selected hardware policy then independently denies the same software-bound evidence before effect or learning. Explicit signed rotation may deliberately weaken policy only when allow_weakening is set and the weakened operation set is committed into the rotation. This does not provide OS/kernel mandatory enforcement or hardware-rooted policy keys.",
+	out := map[string]any{
+		"protocol": "liminal.policy-authority-proof.v1.1", "source_v1_0_proof_sha256": sourceHash, "evidence": source.Evidence,
+		"trust_root": root, "root_signed_manifest": rootSigned, "current_signed_manifest": currentSigned, "rotation": rotation,
+		"allowed_authorization": allowedAuth, "hardware_authorization": hardwareAuth, "allowed_decision": allowedDecision,
+		"hardware_decision": hardwareDecision, "allowed_result": allowedResult, "allowed_receipt": allowedReceipt,
+		"allowed_observation": obs, "explicit_weakening_rotation": explicitWeakening, "learning_log": *learningPath, "flags": flags,
+		"claim": "v1.1 binds operation classes to exact trust-policy hashes through a pinned Ed25519 policy-authority root and explicit signed manifest rotation. A weaker caller-selected policy is rejected before TrustGate construction; the authority-selected hardware policy independently denies insufficient evidence before effect or learning. Intentional weakening requires an explicit signed rotation naming the weakened operations. This does not provide OS/kernel mandatory enforcement or hardware-rooted policy keys.",
 	}
 	b, err := json.MarshalIndent(out, "", "  ")
 	must(err)
 	must(os.WriteFile(*outPath, append(b, '\n'), 0o644))
-
 	fmt.Printf("allow=%v hardware_deny=%v weak_substitution_rejected=%v weak_effects=%d weak_learning=%d hardware_effects=%d hardware_learning=%d\n",
 		allowedDecision.Allowed, !hardwareDecision.Allowed, errors.Is(weakErr, adaptive.ErrPolicyAuthorityMismatch), weakEffects, weakLearning, hardwareEffects, hardwareLearning)
 	fmt.Printf("manifest=%s rotation=%s authorization=%s policy=%s evidence=%s decision=%s\n",
-		allowedAuthorization.SignedManifestHash, allowedAuthorization.RotationHash, allowedAuthorization.AuthorizationHash, allowedDecision.PolicyHash, allowedDecision.EvidenceHash, allowedDecision.DecisionHash)
+		allowedAuth.SignedManifestHash, allowedAuth.RotationHash, allowedAuth.AuthorizationHash, allowedDecision.PolicyHash, allowedDecision.EvidenceHash, allowedDecision.DecisionHash)
 	fmt.Printf("hardware_unmet=%v explicit_weakening=%v learning_lines=%d restart_stable=%v\n",
-		hardwareDecision.Unmet, explicitWeakening.WeakenedOperations, nonEmptyLines(*learningPath), restartedAuthorization.AuthorizationHash == allowedAuthorization.AuthorizationHash)
+		hardwareDecision.Unmet, explicitWeakening.WeakenedOperations, nonEmptyLines(*learningPath), restartedAuth.AuthorizationHash == allowedAuth.AuthorizationHash)
 	fmt.Printf("proof=%s\n", *outPath)
 }
 
@@ -327,7 +230,6 @@ func deterministicKey(label string) ed25519.PrivateKey {
 	sum := sha256.Sum256([]byte(label))
 	return ed25519.NewKeyFromSeed(sum[:])
 }
-
 func readJSON(path string, dst any) error {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -335,14 +237,12 @@ func readJSON(path string, dst any) error {
 	}
 	return json.Unmarshal(b, dst)
 }
-
 func fileSHA256(path string) string {
 	b, err := os.ReadFile(path)
 	must(err)
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
-
 func appendLearning(path string, value any) error {
 	b, err := json.Marshal(value)
 	if err != nil {
@@ -358,7 +258,6 @@ func appendLearning(path string, value any) error {
 	}
 	return f.Sync()
 }
-
 func nonEmptyLines(path string) int {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -367,8 +266,7 @@ func nonEmptyLines(path string) int {
 		}
 		panic(err)
 	}
-	count := 0
-	inLine := false
+	count, inLine := 0, false
 	for _, c := range b {
 		if c == '\n' {
 			if inLine {
@@ -386,7 +284,6 @@ func nonEmptyLines(path string) int {
 	}
 	return count
 }
-
 func contains(refs []string, want string) bool {
 	for _, ref := range refs {
 		if ref == want {
@@ -395,7 +292,6 @@ func contains(refs []string, want string) bool {
 	}
 	return false
 }
-
 func must(err error) {
 	if err != nil {
 		panic(err)
