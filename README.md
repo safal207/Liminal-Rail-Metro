@@ -46,6 +46,22 @@ The layers deliberately have different jobs:
 - **Lifetra** — carries trajectory/proof semantics and authority decisions.
 - **Receipt layer** — records what actually executed; a route or permission is not execution proof.
 
+## Codex adapter v0.1
+
+The optional [Codex plugin and CLI adapter](docs/codex-adapter-v0.1.md) connects a
+Codex action to the existing bounded decision gate and a verifiable local receipt:
+
+```text
+Codex skill -> metro-codex JSON CLI -> Packet / Decision Request
+            -> v0.6 gate -> bounded local SHA-256 -> Receipt + integrity proof
+                        -> REQUIRE_APPROVAL -> no dispatch / no receipt
+```
+
+Build with `go build -o metro-codex ./cmd/metro-codex`. The plugin uses the
+documented skills/tool boundary; it does not intercept other Codex tools or
+implement an undocumented Codex or Jev API. External effects remain approval-only.
+See the [installation, examples and claim limits](docs/codex-adapter-v0.1.md).
+
 ## Engine
 
 **Go is the primary runtime for Liminal Rail Metro.**

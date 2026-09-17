@@ -1,0 +1,8 @@
+{
+  "protocol": "metro.codex.action.v0.1",
+  "request_id": "codex-decision-002",
+  "action_id": "codex-action-002",
+  "kind": "external_action",
+  "description": "Publish a release (approval boundary demonstration only)",
+  "side_effect": true
+}
