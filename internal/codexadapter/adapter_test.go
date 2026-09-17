@@ -115,6 +115,35 @@ func TestInvalidActionsFailClosed(t *testing.T) {
 	}
 }
 
+func TestGoAPICannotCreateEvidenceFromInvalidUTF8(t *testing.T) {
+	invalid := string([]byte{0xff})
+	cases := map[string]func(*Action){
+		"text": func(a *Action) { a.Text = ptr(invalid) },
+		"description": func(a *Action) {
+			a.Kind, a.Text, a.Description, a.SideEffect = "external_action", nil, ptr(invalid), ptr(true)
+		},
+		"state key":   func(a *Action) { a.State = map[string]string{invalid: "value"} },
+		"state value": func(a *Action) { a.State = map[string]string{"key": invalid} },
+	}
+	for name, change := range cases {
+		t.Run(name, func(t *testing.T) {
+			a := testAction()
+			change(&a)
+			calls := 0
+			response, err := run(context.Background(), a, providerFunc(func(_ context.Context, request decisionplane.Request) (decisionplane.Decision, error) {
+				calls++
+				return goodDecision(request), nil
+			}))
+			if err == nil || calls != 0 || response.Protocol != "" {
+				t.Fatalf("invalid UTF-8 reached provider or produced evidence: calls=%d, response=%+v, err=%v", calls, response, err)
+			}
+			if response, err := Run(context.Background(), a); err == nil || response.Protocol != "" {
+				t.Fatal("public Run accepted invalid UTF-8")
+			}
+		})
+	}
+}
+
 func TestUntrustedDecisionFailsClosed(t *testing.T) {
 	cases := map[string]func(*decisionplane.Decision){
 		"packet hash":             func(d *decisionplane.Decision) { d.PacketHash = "stale" },

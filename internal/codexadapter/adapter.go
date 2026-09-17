@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/safal207/Liminal-Rail-Metro/internal/decisionplane"
 	"github.com/safal207/Liminal-Rail-Metro/internal/metro"
@@ -63,10 +64,16 @@ func (a Action) validate() error {
 	if a.SideEffect == nil {
 		return errors.New("side_effect must be explicitly true or false")
 	}
+	if (a.Text != nil && !utf8.ValidString(*a.Text)) || (a.Description != nil && !utf8.ValidString(*a.Description)) {
+		return errors.New("text and description must contain valid UTF-8")
+	}
 	if len(a.State) > 64 {
 		return errors.New("state exceeds 64 entries")
 	}
 	for key, value := range a.State {
+		if !utf8.ValidString(key) || !utf8.ValidString(value) {
+			return errors.New("state must contain valid UTF-8")
+		}
 		if len(key) > 128 || len(value) > 1024 {
 			return errors.New("state key/value exceeds byte limit")
 		}
