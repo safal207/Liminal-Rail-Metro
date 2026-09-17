@@ -1,0 +1,18 @@
+{
+  "name": "liminal-rail-metro",
+  "version": "0.1.0",
+  "description": "Bounded local Codex actions with Metro decisions and verifiable receipts.",
+  "author": {
+    "name": "safal207"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Liminal Rail Metro",
+    "shortDescription": "Route bounded actions and verify local receipts.",
+    "longDescription": "Uses the metro-codex CLI to hash text locally or return an approval-only decision for external actions. Includes packet, state and choices binding checks.",
+    "developerName": "safal207",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Run and verify a bounded Liminal Rail Metro action."
+  }
+}

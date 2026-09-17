@@ -1,0 +1,65 @@
+name: Codex Adapter v0.1
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  adapter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Require formatting
+        run: test -z "$(gofmt -l internal/codexadapter cmd/metro-codex)"
+      - name: Go tests and vet
+        run: |
+          go test ./...
+          go vet ./...
+      - name: Race checks
+        run: go test -race ./internal/codexadapter ./cmd/metro-codex ./internal/decisionplane ./internal/lifetrastation
+      - name: Bounded input fuzzing
+        run: go test ./cmd/metro-codex -run '^$' -fuzz FuzzCLIInput -fuzztime 10s
+      - name: Compiled CLI proof and approval boundary
+        run: |
+          go build -o metro-codex ./cmd/metro-codex
+          ./metro-codex run < examples/codex-hash-text.json > codex-local-proof.json
+          ./metro-codex verify < codex-local-proof.json
+          ./metro-codex run < examples/codex-approval.json > codex-approval-proof.json
+          ./metro-codex verify < codex-approval-proof.json
+          python3 - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          local = json.loads(Path('codex-local-proof.json').read_text())['evidence']
+          assert local['dispatched'] is True
+          assert local['receipt']['status'] == 'SUCCEEDED'
+          assert local['result']['sha256'] == 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+          approval = json.loads(Path('codex-approval-proof.json').read_text())['evidence']
+          assert approval['gate']['disposition'] == 'REQUIRE_APPROVAL'
+          assert approval['dispatched'] is False
+          assert not any(k in approval for k in ('result', 'receipt'))
+          assert 'route' not in approval['gate']
+          forged = json.loads(Path('examples/codex-approval.json').read_text())
+          forged['side_effect'] = False
+          rejected = subprocess.run(['./metro-codex', 'run'], input=json.dumps(forged), text=True, capture_output=True)
+          assert rejected.returncode == 1 and rejected.stdout == ''
+          tampered = json.loads(Path('codex-local-proof.json').read_text())
+          tampered['evidence']['receipt']['status'] = 'UNKNOWN'
+          rejected = subprocess.run(['./metro-codex', 'verify'], input=json.dumps(tampered), text=True, capture_output=True)
+          assert rejected.returncode == 1 and rejected.stdout == ''
+          PY
+      - name: Upload local evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-adapter-v0.1-proofs
+          path: codex-*-proof.json
+          if-no-files-found: error
