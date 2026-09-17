@@ -155,7 +155,7 @@ func main() {
 	must(err)
 
 	tamperedManifest := currentSigned
-	tamperedManifest.Manifest.Bindings[1].Policy = externalPortable
+	tamperedManifest.Manifest.ManifestHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	tamperedManifestRejected := tamperedManifest.SelfVerify() != nil
 	tamperedSignature := currentSigned
 	tamperedSignature.Signature = tamperedSignature.Signature[:len(tamperedSignature.Signature)-4] + "AAAA"
