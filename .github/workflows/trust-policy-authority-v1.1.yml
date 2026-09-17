@@ -1,0 +1,245 @@
+name: Trust Policy Authority v1.1
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  signed-policy-authority:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+
+      - name: Require gofmt
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l -- $(find . -path './_deps' -prune -o -name '*.go' -print))"
+          if [ -n "$unformatted" ]; then
+            echo "Go files require gofmt:" >&2
+            echo "$unformatted" >&2
+            gofmt -d -- $unformatted
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: go test ./...
+
+      - name: Reproduce externally identified v0.8 source proof
+        shell: bash
+        run: |
+          rm -f hardware-adaptive-v0.8.journal.jsonl hardware-adaptive-proof-v0.8.json hardware-adaptive-v0.8.log
+          go run ./cmd/hardware-adaptive-v08-demo | tee hardware-adaptive-v0.8.log
+
+      - name: Install pinned cosign
+        uses: sigstore/cosign-installer@v4.1.2
+        with:
+          cosign-release: v3.1.3
+
+      - name: Record cosign version
+        run: cosign version | tee cosign-v1.1.version.txt
+
+      - name: Keyless-sign source proof
+        shell: bash
+        run: |
+          cosign sign-blob hardware-adaptive-proof-v0.8.json \
+            --bundle policy-authority-v1.1-source.sigstore.json \
+            --yes
+
+      - name: Independently verify portable publication
+        shell: bash
+        run: |
+          IDENTITY_REGEX='^https://github\.com/safal207/Liminal-Rail-Metro/\.github/workflows/trust-policy-authority-v1\.1\.yml@refs/(pull/[0-9]+/merge|heads/.+)$'
+          cosign verify-blob hardware-adaptive-proof-v0.8.json \
+            --bundle policy-authority-v1.1-source.sigstore.json \
+            --certificate-identity-regexp "$IDENTITY_REGEX" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            | tee cosign-verify-v1.1.log
+
+      - name: Build verified v0.9-style portable receipt
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+
+          def sha256(path):
+              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+          source = json.loads(Path('hardware-adaptive-proof-v0.8.json').read_text())
+          bundle = json.loads(Path('policy-authority-v1.1-source.sigstore.json').read_text())
+          assert source['protocol'] == 'liminal.hardware-adaptive-proof.v0.8'
+          assert source['flags']['external_oidc_verified'] is True
+          assert source['flags']['no_false_hardware_upgrade'] is True
+          assert source['discovery']['hardware_upgrade_selected'] is False
+
+          receipt = {
+              'protocol': 'liminal.portable-proof.v0.9',
+              'payload_sha256': sha256('hardware-adaptive-proof-v0.8.json'),
+              'sigstore_bundle_sha256': sha256('policy-authority-v1.1-source.sigstore.json'),
+              'sigstore_bundle_media_type': bundle.get('mediaType', ''),
+              'keyless_signing_completed': True,
+              'independent_cosign_verify_passed': True,
+              'transparency_log_verified_by_cosign': True,
+              'source_external_identity_verified': True,
+              'source_hardware_upgrade_selected': False,
+              'hardware_backed': False,
+              'remote_hardware_attestation': False
+          }
+          Path('portable-proof-v0.9.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          PY
+
+      - name: Reproduce v1.0 trust-policy proof
+        shell: bash
+        run: |
+          rm -f trust-policy-proof-v1.0.json trust-policy-v1.0.learning.jsonl
+          go run ./cmd/trust-policy-v10-demo \
+            --source hardware-adaptive-proof-v0.8.json \
+            --portable portable-proof-v0.9.json \
+            --out trust-policy-proof-v1.0.json \
+            --learning-log trust-policy-v1.0.learning.jsonl \
+            | tee trust-policy-v1.0.log
+
+      - name: Verify v1.0 predecessor invariants
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = json.loads(Path('trust-policy-proof-v1.0.json').read_text())
+          assert p['protocol'] == 'liminal.trust-policy-proof.v1.0'
+          assert p['flags']['portable_external_policy_allowed'] is True
+          assert p['flags']['hardware_critical_policy_denied'] is True
+          assert p['evidence']['external_identity_verified'] is True
+          assert p['evidence']['portable_publication_verified'] is True
+          assert p['evidence']['hardware_backed'] is False
+          assert p['evidence']['remote_hardware_attestation'] is False
+          print('v1.0 predecessor invariants: PASS')
+          PY
+
+      - name: Run signed policy-authority proof
+        shell: bash
+        run: |
+          rm -f policy-authority-proof-v1.1.json policy-authority-v1.1.learning.jsonl
+          go run ./cmd/policy-authority-v11-demo \
+            --source trust-policy-proof-v1.0.json \
+            --out policy-authority-proof-v1.1.json \
+            --learning-log policy-authority-v1.1.learning.jsonl \
+            | tee policy-authority-v1.1.log
+
+      - name: Verify v1.1 policy-authority invariants
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+
+          p = json.loads(Path('policy-authority-proof-v1.1.json').read_text())
+          assert p['protocol'] == 'liminal.policy-authority-proof.v1.1'
+          f = p['flags']
+          required = [
+              'root_manifest_verified',
+              'operation_policy_exact_bound',
+              'weak_policy_substitution_rejected',
+              'weak_substitution_effect_not_called',
+              'weak_substitution_learning_not_called',
+              'hardware_critical_policy_denied',
+              'hardware_denied_effect_not_called',
+              'hardware_denied_learning_not_called',
+              'tampered_manifest_rejected',
+              'tampered_signature_rejected',
+              'restart_authorization_stable',
+              'explicit_rotation_verified',
+              'silent_weakening_rotation_rejected',
+              'explicit_weakening_marked',
+              'allowed_receipt_authority_bound',
+              'lifetra_authority_refs_present',
+              'exactly_one_learning_write',
+              'v1_0_evidence_reused',
+          ]
+          for key in required:
+              assert f[key] is True, (key, f[key])
+
+          e = p['evidence']
+          allow = p['allowed_decision']
+          deny = p['hardware_decision']
+          auth = p['allowed_authorization']
+          hardware_auth = p['hardware_authorization']
+          assert e['evidence_hash'] == allow['evidence_hash'] == deny['evidence_hash']
+          assert allow['allowed'] is True
+          assert deny['allowed'] is False
+          assert deny['unmet'] == ['hardware_backed', 'remote_hardware_attestation']
+          assert auth['operation_class'] == 'bounded.cpu.sha256'
+          assert hardware_auth['operation_class'] == 'hardware.critical'
+          assert auth['generation'] == 2 and hardware_auth['generation'] == 2
+          assert auth['policy_hash'] == allow['policy_hash']
+          assert hardware_auth['policy_hash'] == deny['policy_hash']
+          assert auth['rotation_hash'] == p['rotation']['rotation_hash']
+          assert p['explicit_weakening_rotation']['allow_weakening'] is True
+          assert p['explicit_weakening_rotation']['weakened_operations'] == ['hardware.critical']
+
+          hex64 = re.compile(r'^[a-f0-9]{64}$')
+          for value in [
+              p['source_v1_0_proof_sha256'],
+              p['trust_root']['root_manifest_hash'],
+              p['trust_root']['root_signed_manifest_hash'],
+              p['rotation']['rotation_hash'],
+              auth['manifest_hash'], auth['signed_manifest_hash'], auth['authorization_hash'],
+              hardware_auth['authorization_hash'],
+          ]:
+              assert hex64.fullmatch(value), value
+
+          result = p['allowed_result']
+          assert result['trust_allowed'] is True
+          assert result['policy_authorization_hash'] == auth['authorization_hash']
+          assert result['policy_operation_class'] == auth['operation_class']
+          assert result['policy_authority_policy_hash'] == auth['policy_hash']
+
+          receipt = p['allowed_receipt']
+          assert receipt['status'] == 'SUCCEEDED'
+          assert receipt['result_ref'] == 'adaptive-policy-authorization://sha256/' + auth['authorization_hash']
+
+          refs = p['allowed_observation']['proof_refs']
+          assert 'adaptive-policy-authority-manifest://sha256/' + auth['signed_manifest_hash'] in refs
+          assert 'adaptive-policy-authority-rotation://sha256/' + auth['rotation_hash'] in refs
+          assert 'adaptive-policy-authorization://sha256/' + auth['authorization_hash'] in refs
+
+          lines = [x for x in Path(p['learning_log']).read_text().splitlines() if x.strip()]
+          assert len(lines) == 1
+          print('v1.1 signed policy-authority invariants: PASS')
+          PY
+
+      - name: Show v1.1 proof summary
+        shell: bash
+        run: |
+          cat policy-authority-v1.1.log
+          python3 -m json.tool policy-authority-proof-v1.1.json | tail -n 240
+
+      - name: Upload v1.1 proof artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: trust-policy-authority-v1.1-proof
+          path: |
+            hardware-adaptive-proof-v0.8.json
+            hardware-adaptive-v0.8.journal.jsonl
+            hardware-adaptive-v0.8.log
+            policy-authority-v1.1-source.sigstore.json
+            portable-proof-v0.9.json
+            cosign-verify-v1.1.log
+            cosign-v1.1.version.txt
+            trust-policy-proof-v1.0.json
+            trust-policy-v1.0.learning.jsonl
+            trust-policy-v1.0.log
+            policy-authority-proof-v1.1.json
+            policy-authority-v1.1.learning.jsonl
+            policy-authority-v1.1.log

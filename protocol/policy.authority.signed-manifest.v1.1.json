@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liminal-rail.local/protocol/policy.authority.signed-manifest.v1.1.json",
+  "title": "Liminal Signed Policy Authority Manifest v1.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "manifest", "issuer_id", "issuer_key_id", "issuer_public_key_base64", "signature_algorithm", "issued_at", "signature_base64", "signed_manifest_hash"],
+  "properties": {
+    "protocol": {"const": "liminal.policy-authority.signed-manifest.v1.1"},
+    "manifest": {"type": "object"},
+    "issuer_id": {"type": "string", "minLength": 1},
+    "issuer_key_id": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "issuer_public_key_base64": {"type": "string", "minLength": 1},
+    "signature_algorithm": {"const": "ed25519"},
+    "issued_at": {"type": "string", "minLength": 1},
+    "signature_base64": {"type": "string", "minLength": 1},
+    "signed_manifest_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}
