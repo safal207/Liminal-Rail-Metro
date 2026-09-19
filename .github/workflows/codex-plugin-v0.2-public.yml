@@ -70,3 +70,62 @@ jobs:
               raise SystemExit("hosted listener did not become healthy")
           print("hosted listener: PASS")
           PY
+
+      - name: Probe live HTTPS MCP
+        run: |
+          python3 - <<'PY'
+          import json, time, urllib.request
+
+          base = "https://liminal-rail-codex-mcp-production.up.railway.app"
+
+          health = None
+          for _ in range(120):
+              try:
+                  with urllib.request.urlopen(base + "/healthz", timeout=2) as response:
+                      health = json.load(response)
+                      if response.status == 200 and health == {"status": "ok", "version": "0.2.0"}:
+                          break
+              except Exception:
+                  pass
+              time.sleep(1)
+          else:
+              raise SystemExit(f"live health probe failed: {health!r}")
+
+          payload = json.dumps({
+              "jsonrpc": "2.0",
+              "id": 1,
+              "method": "initialize",
+              "params": {
+                  "protocolVersion": "2024-11-05",
+                  "capabilities": {},
+                  "clientInfo": {"name": "liminal-ci", "version": "0.2.0"},
+              },
+          }).encode()
+          request = urllib.request.Request(
+              base + "/mcp",
+              data=payload,
+              method="POST",
+              headers={
+                  "Content-Type": "application/json",
+                  "Accept": "application/json, text/event-stream",
+              },
+          )
+          result = None
+          for _ in range(120):
+              try:
+                  with urllib.request.urlopen(request, timeout=3) as response:
+                      result = json.load(response)
+                      info = result["result"]["serverInfo"]
+                      assert response.status == 200
+                      assert response.headers.get_content_type() == "application/json"
+                      assert info["name"] == "liminal-rail-codex"
+                      assert info["version"] == "0.2.0"
+                      break
+              except Exception:
+                  pass
+              time.sleep(1)
+          else:
+              raise SystemExit(f"live MCP initialize probe failed: {result!r}")
+
+          print("live HTTPS MCP: PASS")
+          PY
