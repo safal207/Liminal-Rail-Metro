@@ -265,25 +265,25 @@ func fixtureClient(t *testing.T, fixture githubFixture) (*GitHubClient, func()) 
 		switch request.URL.Path {
 		case "/repos/acme/repo/issues/16":
 			_ = json.NewEncoder(writer).Encode(map[string]any{
-				"number": 16,
-				"state": fixture.issueState,
-				"title": "Bounded issue",
-				"body": "Implement one bounded coding workflow.",
+				"number":   16,
+				"state":    fixture.issueState,
+				"title":    "Bounded issue",
+				"body":     "Implement one bounded coding workflow.",
 				"html_url": "https://github.com/acme/repo/issues/16",
 			})
 		case "/repos/acme/repo/pulls/17":
 			_ = json.NewEncoder(writer).Encode(map[string]any{
-				"number": 17,
-				"state": fixture.prState,
-				"draft": fixture.prDraft,
-				"html_url": "https://github.com/acme/repo/pull/17",
+				"number":        17,
+				"state":         fixture.prState,
+				"draft":         fixture.prDraft,
+				"html_url":      "https://github.com/acme/repo/pull/17",
 				"changed_files": len(fixture.files),
 				"base": map[string]any{
-					"sha": fixture.prBaseSHA,
+					"sha":  fixture.prBaseSHA,
 					"repo": map[string]any{"full_name": testRepository},
 				},
 				"head": map[string]any{
-					"sha": testHeadSHA,
+					"sha":  testHeadSHA,
 					"repo": map[string]any{"full_name": testRepository},
 				},
 			})
@@ -292,7 +292,7 @@ func fixtureClient(t *testing.T, fixture githubFixture) (*GitHubClient, func()) 
 		case "/repos/acme/repo/commits/" + testHeadSHA + "/check-runs":
 			_ = json.NewEncoder(writer).Encode(map[string]any{
 				"total_count": fixture.totalChecks,
-				"check_runs": fixture.checkRuns,
+				"check_runs":  fixture.checkRuns,
 			})
 		default:
 			http.NotFound(writer, request)
@@ -321,7 +321,7 @@ func testProvider() decisionplane.Provider {
 		ID: "coding-test-provider",
 		Scores: map[string]float64{
 			"code": 99,
-			"qa": 1,
+			"qa":   1,
 		},
 	}
 }
