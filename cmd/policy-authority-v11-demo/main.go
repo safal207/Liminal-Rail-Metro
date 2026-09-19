@@ -87,63 +87,97 @@ func main() {
 		DeclaredClass: "bounded.cpu.sha256", Action: allowedAction,
 		Target: "executor://policy-authority-local-cpu", SideEffect: false,
 	}
-	allowedGate, err := adaptive.NewPolicyAuthorityGateWithRequestedPolicy(resolver, allowedRequest, externalPortable, source.Evidence)
-	must(err)
-	allowedAuth := allowedGate.Authorization()
-	allowedDecision, err := allowedGate.RequireAllowed()
-	must(err)
-
 	hardwareAction := metro.Action{Kind: "policy-authority.hardware.critical", Inputs: map[string]any{"device": "rail-7", "command": "write"}}
-	mislabeledRequest := adaptive.OperationRequest{
-		DeclaredClass: "bounded.cpu.sha256", Action: hardwareAction,
-		Target: "executor://hardware-critical", SideEffect: true,
-	}
-	_, classErr := adaptive.NewPolicyAuthorityGateWithRequestedPolicy(resolver, mislabeledRequest, externalPortable, source.Evidence)
-	classSpoofEffects, classSpoofLearning := 0, 0
-
 	hardwareRequest := adaptive.OperationRequest{
 		DeclaredClass: "hardware.critical", Action: hardwareAction,
 		Target: "executor://hardware-critical", SideEffect: true,
 	}
-	_, weakErr := adaptive.NewPolicyAuthorityGateWithRequestedPolicy(resolver, hardwareRequest, externalPortable, source.Evidence)
+
+	var (
+		effectHash         string
+		effectDuration     time.Duration
+		boundDispatchExact bool
+		hardwareEffects    int
+		hardwareLearning   int
+		allowedAuth        policyauthority.Authorization
+		allowedDecision    trustpolicy.Decision
+		allowedReceipt     metro.Receipt
+	)
+	runtime, err := adaptive.NewPolicyAuthorityRuntime(resolver, []adaptive.HandlerRegistration{
+		{
+			ActionKind: allowedAction.Kind, Target: allowedRequest.Target, SideEffect: false,
+			Handler: func(op adaptive.BoundOperation) error {
+				must(op.Validate())
+				boundDispatchExact = op.OperationClass == "bounded.cpu.sha256" &&
+					op.Action.Kind == allowedAction.Kind &&
+					op.Target == allowedRequest.Target &&
+					op.Descriptor.DescriptorHash == allowedAuth.OperationDescriptorHash
+				if !boundDispatchExact {
+					return errors.New("trusted runtime handler received operation different from authority-bound descriptor")
+				}
+				start := time.Now()
+				payload := make([]byte, 2048)
+				var sink [32]byte
+				for i := 0; i < 90000; i++ {
+					payload[i%len(payload)] ^= byte(i)
+					sink = sha256.Sum256(payload)
+					copy(payload[:32], sink[:])
+				}
+				effectDuration, effectHash = time.Since(start), hex.EncodeToString(sink[:])
+				return nil
+			},
+		},
+		{
+			ActionKind: hardwareAction.Kind, Target: hardwareRequest.Target, SideEffect: true,
+			Handler: func(op adaptive.BoundOperation) error {
+				hardwareEffects++
+				return nil
+			},
+		},
+	}, adaptive.LearnFunc(func(op adaptive.BoundOperation) error {
+		must(op.Validate())
+		if op.OperationClass == "hardware.critical" {
+			hardwareLearning++
+			return nil
+		}
+		if op.OperationClass != "bounded.cpu.sha256" {
+			return errors.New("unexpected operation class reached trusted learner")
+		}
+		return appendLearning(*learningPath, map[string]any{
+			"protocol":                  "liminal.policy-authority-learning.v1.1",
+			"authorization_hash":        allowedAuth.AuthorizationHash,
+			"operation_descriptor_hash": op.Descriptor.DescriptorHash,
+			"chain_head_hash":           allowedAuth.ChainHeadHash,
+			"decision_hash":             allowedDecision.DecisionHash,
+			"receipt_id":                allowedReceipt.ReceiptID,
+			"effect_sha256":             effectHash,
+		})
+	}))
+	must(err)
+
+	allowedGate, err := runtime.NewGateWithRequestedPolicy(allowedRequest, externalPortable, source.Evidence)
+	must(err)
+	allowedAuth = allowedGate.Authorization()
+	allowedDecision, err = allowedGate.RequireAllowed()
+	must(err)
+
+	mislabeledRequest := adaptive.OperationRequest{
+		DeclaredClass: "bounded.cpu.sha256", Action: hardwareAction,
+		Target: "executor://hardware-critical", SideEffect: true,
+	}
+	_, classErr := runtime.NewGateWithRequestedPolicy(mislabeledRequest, externalPortable, source.Evidence)
+	classSpoofEffects, classSpoofLearning := 0, 0
+
+	_, weakErr := runtime.NewGateWithRequestedPolicy(hardwareRequest, externalPortable, source.Evidence)
 	weakEffects, weakLearning := 0, 0
 
-	hardwareGate, err := adaptive.NewPolicyAuthorityGateWithRequestedPolicy(resolver, hardwareRequest, hardwareCritical, source.Evidence)
+	hardwareGate, err := runtime.NewGateWithRequestedPolicy(hardwareRequest, hardwareCritical, source.Evidence)
 	must(err)
 	hardwareAuth := hardwareGate.Authorization()
-	hardwareEffects, hardwareLearning := 0, 0
-	hardwareDecision, hardwareErr := hardwareGate.Execute(adaptive.DispatchFunc(func(op adaptive.BoundOperation) error {
-		hardwareEffects++
-		return nil
-	}))
-	_, hardwareLearnErr := hardwareGate.Learn(adaptive.LearnFunc(func(op adaptive.BoundOperation) error {
-		hardwareLearning++
-		return nil
-	}))
+	hardwareDecision, hardwareErr := hardwareGate.Execute()
+	_, hardwareLearnErr := hardwareGate.Learn()
 
-	var effectHash string
-	var effectDuration time.Duration
-	boundDispatchExact := false
-	allowedDecision, err = allowedGate.Execute(adaptive.DispatchFunc(func(op adaptive.BoundOperation) error {
-		must(op.Validate())
-		boundDispatchExact = op.OperationClass == "bounded.cpu.sha256" &&
-			op.Action.Kind == allowedAction.Kind &&
-			op.Target == allowedRequest.Target &&
-			op.Descriptor.DescriptorHash == allowedAuth.OperationDescriptorHash
-		if !boundDispatchExact {
-			return errors.New("dispatcher received operation different from authority-bound descriptor")
-		}
-		start := time.Now()
-		payload := make([]byte, 2048)
-		var sink [32]byte
-		for i := 0; i < 90000; i++ {
-			payload[i%len(payload)] ^= byte(i)
-			sink = sha256.Sum256(payload)
-			copy(payload[:32], sink[:])
-		}
-		effectDuration, effectHash = time.Since(start), hex.EncodeToString(sink[:])
-		return nil
-	}))
+	allowedDecision, err = allowedGate.Execute()
 	must(err)
 
 	allowedResult, err := allowedGate.BindDecisionResult(map[string]any{
@@ -171,7 +205,7 @@ func main() {
 		SelectedTarget: allowedRequest.Target, Candidates: []metro.Candidate{{Target: allowedRequest.Target, Score: 1}},
 		PolicyRef: lifetrabridge.PolicyAuthorizationRefPrefix + allowedAuth.AuthorizationHash, DecidedAt: metro.NowISO(),
 	}
-	allowedReceipt, err := metro.MakeSuccessReceipt(packet, route, allowedResult, lifetrabridge.PolicyAuthorizationRefPrefix+allowedAuth.AuthorizationHash)
+	allowedReceipt, err = metro.MakeSuccessReceipt(packet, route, allowedResult, lifetrabridge.PolicyAuthorizationRefPrefix+allowedAuth.AuthorizationHash)
 	must(err)
 	must(metro.Verify(packet, route, allowedResult, allowedReceipt))
 	must(allowedGate.ValidateDecisionResultBinding(allowedResult, allowedDecision))
@@ -183,18 +217,7 @@ func main() {
 	must(err)
 
 	_ = os.Remove(*learningPath)
-	_, err = allowedGate.Learn(adaptive.LearnFunc(func(op adaptive.BoundOperation) error {
-		must(op.Validate())
-		return appendLearning(*learningPath, map[string]any{
-			"protocol":                  "liminal.policy-authority-learning.v1.1",
-			"authorization_hash":        allowedAuth.AuthorizationHash,
-			"operation_descriptor_hash": op.Descriptor.DescriptorHash,
-			"chain_head_hash":           allowedAuth.ChainHeadHash,
-			"decision_hash":             allowedDecision.DecisionHash,
-			"receipt_id":                allowedReceipt.ReceiptID,
-			"effect_sha256":             effectHash,
-		})
-	}))
+	_, err = allowedGate.Learn()
 	must(err)
 
 	tamperedManifest := currentSigned
@@ -242,6 +265,7 @@ func main() {
 		"class_spoof_effect_not_called":         classSpoofEffects == 0,
 		"class_spoof_learning_not_called":       classSpoofLearning == 0,
 		"bound_dispatcher_exact_descriptor":     boundDispatchExact,
+		"caller_cannot_supply_execute_callback": boundDispatchExact && hardwareEffects == 0,
 		"weak_policy_substitution_rejected":     errors.Is(weakErr, adaptive.ErrPolicyAuthorityMismatch),
 		"weak_substitution_effect_not_called":   weakEffects == 0,
 		"weak_substitution_learning_not_called": weakLearning == 0,
@@ -282,16 +306,18 @@ func main() {
 		"learning_log":                *learningPath,
 		"head_state":                  *headPath,
 		"flags":                       flags,
-		"claim":                       "v1.1 derives operation class from a signed execution descriptor (action kind, target, side-effect flag and exact input hash), binds authorization to a durable accepted policy-authority chain head, rejects caller class spoofing and old-valid-chain rollback before effect or learning, then delegates evidence evaluation to v1.0. Intentional weakening still requires an explicit signed rotation. The durable head file is fail-closed state, not tamper-resistant hardware storage.",
+		"claim":                       "v1.1 derives operation class from a signed execution descriptor, dispatches through trusted runtime handlers selected only from that descriptor, binds authorization to a durable accepted policy-authority chain head, rejects caller class spoofing and old-valid-chain rollback before effect or learning, then delegates evidence evaluation to v1.0. Intentional weakening still requires an explicit signed rotation. Trusted handler semantics and tamper-resistant head storage remain outside the claim.",
 	}
 	b, err := json.MarshalIndent(out, "", "  ")
 	must(err)
 	must(os.WriteFile(*outPath, append(b, '\n'), 0o644))
 
-	fmt.Printf("allow=%v hardware_deny=%v class_spoof_rejected=%v weak_policy_rejected=%v rollback_rejected=%v\n",
-		allowedDecision.Allowed, !hardwareDecision.Allowed, errors.Is(classErr, adaptive.ErrOperationClassMismatch), errors.Is(weakErr, adaptive.ErrPolicyAuthorityMismatch), rollbackRejected)
+	fmt.Printf("allow=%v hardware_deny=%v class_spoof_rejected=%v weak_policy_rejected=%v rollback_rejected=%v trusted_dispatch=%v\n",
+		allowedDecision.Allowed, !hardwareDecision.Allowed, errors.Is(classErr, adaptive.ErrOperationClassMismatch),
+		errors.Is(weakErr, adaptive.ErrPolicyAuthorityMismatch), rollbackRejected, boundDispatchExact)
 	fmt.Printf("descriptor=%s head=%s authorization=%s policy=%s evidence=%s decision=%s\n",
-		allowedAuth.OperationDescriptorHash, allowedAuth.ChainHeadHash, allowedAuth.AuthorizationHash, allowedDecision.PolicyHash, allowedDecision.EvidenceHash, allowedDecision.DecisionHash)
+		allowedAuth.OperationDescriptorHash, allowedAuth.ChainHeadHash, allowedAuth.AuthorizationHash,
+		allowedDecision.PolicyHash, allowedDecision.EvidenceHash, allowedDecision.DecisionHash)
 	fmt.Printf("hardware_unmet=%v explicit_weakening=%v learning_lines=%d restart_stable=%v\n",
 		hardwareDecision.Unmet, explicitWeakening.WeakenedOperations, nonEmptyLines(*learningPath), restartedAuth.AuthorizationHash == allowedAuth.AuthorizationHash)
 	fmt.Printf("proof=%s\n", *outPath)
@@ -304,9 +330,7 @@ func deterministicKey(label string) ed25519.PrivateKey {
 
 func readJSON(path string, dst any) error {
 	b, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
+	if err != nil { return err }
 	return json.Unmarshal(b, dst)
 }
 
@@ -319,58 +343,40 @@ func fileSHA256(path string) string {
 
 func appendLearning(path string, value any) error {
 	b, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
+	if err != nil { return err }
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
-	}
+	if err != nil { return err }
 	defer f.Close()
-	if _, err := f.Write(append(b, '\n')); err != nil {
-		return err
-	}
+	if _, err := f.Write(append(b, '\n')); err != nil { return err }
 	return f.Sync()
 }
 
 func nonEmptyLines(path string) int {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return 0
-		}
+		if errors.Is(err, os.ErrNotExist) { return 0 }
 		panic(err)
 	}
 	count, inLine := 0, false
 	for _, c := range b {
 		if c == '\n' {
-			if inLine {
-				count++
-			}
+			if inLine { count++ }
 			inLine = false
 			continue
 		}
-		if c != ' ' && c != '\t' && c != '\r' {
-			inLine = true
-		}
+		if c != ' ' && c != '\t' && c != '\r' { inLine = true }
 	}
-	if inLine {
-		count++
-	}
+	if inLine { count++ }
 	return count
 }
 
 func contains(refs []string, want string) bool {
 	for _, ref := range refs {
-		if ref == want {
-			return true
-		}
+		if ref == want { return true }
 	}
 	return false
 }
 
 func must(err error) {
-	if err != nil {
-		panic(err)
-	}
+	if err != nil { panic(err) }
 }

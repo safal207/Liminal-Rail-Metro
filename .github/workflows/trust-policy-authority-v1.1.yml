@@ -155,6 +155,7 @@ jobs:
               'class_spoof_effect_not_called',
               'class_spoof_learning_not_called',
               'bound_dispatcher_exact_descriptor',
+              'caller_cannot_supply_execute_callback',
               'weak_policy_substitution_rejected',
               'weak_substitution_effect_not_called',
               'weak_substitution_learning_not_called',

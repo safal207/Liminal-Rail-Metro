@@ -37,17 +37,9 @@ func (o BoundOperation) Validate() error {
 	return policyauthority.VerifyOperationDescriptor(o.Descriptor, o.Action.Kind, o.Action.Inputs, o.Target, o.SideEffect)
 }
 
-type OperationDispatcher interface {
-	Dispatch(BoundOperation) error
-}
-
 type OperationLearner interface {
 	Learn(BoundOperation) error
 }
-
-type DispatchFunc func(BoundOperation) error
-
-func (f DispatchFunc) Dispatch(op BoundOperation) error { return f(op) }
 
 type LearnFunc func(BoundOperation) error
 
@@ -55,24 +47,16 @@ func (f LearnFunc) Learn(op BoundOperation) error { return f(op) }
 
 type PolicyAuthorityGate struct {
 	trust         TrustGate
-	resolver      *policyauthority.Resolver
+	runtime       *PolicyAuthorityRuntime
 	authorization policyauthority.Authorization
 	operation     BoundOperation
 }
 
-func NewPolicyAuthorityGate(resolver *policyauthority.Resolver, request OperationRequest, evidence trustpolicy.Evidence) (PolicyAuthorityGate, error) {
-	return newPolicyAuthorityGate(resolver, request, nil, evidence)
-}
-
-func NewPolicyAuthorityGateWithRequestedPolicy(resolver *policyauthority.Resolver, request OperationRequest, requested trustpolicy.Policy, evidence trustpolicy.Evidence) (PolicyAuthorityGate, error) {
-	return newPolicyAuthorityGate(resolver, request, &requested, evidence)
-}
-
-func newPolicyAuthorityGate(resolver *policyauthority.Resolver, request OperationRequest, requested *trustpolicy.Policy, evidence trustpolicy.Evidence) (PolicyAuthorityGate, error) {
-	if resolver == nil {
-		return PolicyAuthorityGate{}, errors.New("policy authority resolver is required")
+func newPolicyAuthorityGate(runtime *PolicyAuthorityRuntime, request OperationRequest, requested *trustpolicy.Policy, evidence trustpolicy.Evidence) (PolicyAuthorityGate, error) {
+	if runtime == nil || runtime.resolver == nil {
+		return PolicyAuthorityGate{}, errors.New("policy authority runtime is required")
 	}
-	policy, descriptor, authorization, err := resolver.ResolveOperation(request.Action.Kind, request.Action.Inputs, request.Target, request.SideEffect)
+	policy, descriptor, authorization, err := runtime.resolver.ResolveOperation(request.Action.Kind, request.Action.Inputs, request.Target, request.SideEffect)
 	if err != nil {
 		return PolicyAuthorityGate{}, err
 	}
@@ -98,11 +82,14 @@ func newPolicyAuthorityGate(resolver *policyauthority.Resolver, request Operatio
 	if err := op.Validate(); err != nil {
 		return PolicyAuthorityGate{}, err
 	}
+	if _, err := runtime.handlerFor(op); err != nil {
+		return PolicyAuthorityGate{}, err
+	}
 	trust, err := NewTrustGate(policy, evidence)
 	if err != nil {
 		return PolicyAuthorityGate{}, err
 	}
-	return PolicyAuthorityGate{trust: trust, resolver: resolver, authorization: authorization, operation: op}, nil
+	return PolicyAuthorityGate{trust: trust, runtime: runtime, authorization: authorization, operation: op}, nil
 }
 
 func cloneAction(action metro.Action) (metro.Action, error) {
@@ -139,44 +126,48 @@ func (g PolicyAuthorityGate) RequireAllowed() (trustpolicy.Decision, error) {
 	return g.trust.RequireAllowed()
 }
 
-func (g PolicyAuthorityGate) Execute(dispatcher OperationDispatcher) (trustpolicy.Decision, error) {
+func (g PolicyAuthorityGate) Execute() (trustpolicy.Decision, error) {
 	d, err := g.RequireAllowed()
 	if err != nil {
 		return d, err
 	}
-	if dispatcher == nil {
-		return d, errors.New("bound operation dispatcher is required")
+	if g.runtime == nil {
+		return d, errors.New("policy authority runtime is not initialized")
 	}
 	op, err := g.Operation()
 	if err != nil {
 		return d, err
 	}
-	if err := dispatcher.Dispatch(op); err != nil {
+	handler, err := g.runtime.handlerFor(op)
+	if err != nil {
+		return d, err
+	}
+	if err := handler(op); err != nil {
 		return d, err
 	}
 	return d, nil
 }
 
-func (g PolicyAuthorityGate) Learn(learner OperationLearner) (trustpolicy.Decision, error) {
+func (g PolicyAuthorityGate) Learn() (trustpolicy.Decision, error) {
 	d, err := g.RequireAllowed()
 	if err != nil {
 		return d, err
 	}
-	if learner == nil {
-		return d, errors.New("bound operation learner is required")
+	if g.runtime == nil || g.runtime.learner == nil {
+		return d, errors.New("trusted runtime learner is required")
 	}
 	op, err := g.Operation()
 	if err != nil {
 		return d, err
 	}
-	if err := learner.Learn(op); err != nil {
+	if err := g.runtime.learner.Learn(op); err != nil {
 		return d, err
 	}
 	return d, nil
 }
 
 func (g PolicyAuthorityGate) BindDecisionResult(result map[string]any, decision trustpolicy.Decision) (map[string]any, error) {
-	if err := g.resolver.VerifyAuthorization(g.authorization); err != nil {
+	if err := g.runtime.resolver.VerifyAuthorization(g.authorization); err != nil {
 		return nil, err
 	}
 	if err := g.operation.Validate(); err != nil {
@@ -213,7 +204,7 @@ func (g PolicyAuthorityGate) BindDecisionResult(result map[string]any, decision 
 }
 
 func (g PolicyAuthorityGate) ValidateDecisionResultBinding(result map[string]any, decision trustpolicy.Decision) error {
-	if err := g.resolver.VerifyAuthorization(g.authorization); err != nil {
+	if err := g.runtime.resolver.VerifyAuthorization(g.authorization); err != nil {
 		return err
 	}
 	if err := g.operation.Validate(); err != nil {
