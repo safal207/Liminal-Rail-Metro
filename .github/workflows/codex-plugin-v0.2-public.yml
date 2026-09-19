@@ -1,4 +1,4 @@
-name: Codex Plugin v0.2 Public
+name: Codex Plugin Public
 
 on:
   pull_request:
@@ -37,16 +37,16 @@ jobs:
           fi
 
       - name: Public boundary unit tests
-        run: go test ./internal/codexplugin ./cmd/codex-mcp
+        run: go test ./internal/codingworkflow ./internal/codexplugin ./cmd/codex-mcp
 
       - name: Race detector
-        run: go test -race ./internal/codexplugin ./internal/decisionplane
+        run: go test -race ./internal/codingworkflow ./internal/codexplugin ./internal/decisionplane
 
       - name: Build hosted binary
         run: go build ./cmd/codex-mcp
 
       - name: Build deployment container
-        run: docker build -f Dockerfile.codex-mcp -t liminal-rail-codex-mcp:v0.2 .
+        run: docker build -f Dockerfile.codex-mcp -t liminal-rail-codex-mcp:v0.3 .
 
       - name: Smoke hosted listener
         run: |
@@ -62,7 +62,7 @@ jobs:
                       body = json.load(response)
                       assert response.status == 200
                       assert body["status"] == "ok"
-                      assert body["version"] == "0.2.0"
+                      assert body["version"] == "0.3.0"
                       break
               except Exception:
                   time.sleep(0.1)
@@ -83,7 +83,7 @@ jobs:
               try:
                   with urllib.request.urlopen(base + "/healthz", timeout=2) as response:
                       health = json.load(response)
-                      if response.status == 200 and health == {"status": "ok", "version": "0.2.0"}:
+                      if response.status == 200 and health == {"status": "ok", "version": "0.3.0"}:
                           break
               except Exception:
                   pass
@@ -98,7 +98,7 @@ jobs:
               "params": {
                   "protocolVersion": "2024-11-05",
                   "capabilities": {},
-                  "clientInfo": {"name": "liminal-ci", "version": "0.2.0"},
+                  "clientInfo": {"name": "liminal-ci", "version": "0.3.0"},
               },
           }).encode()
           request = urllib.request.Request(
@@ -119,7 +119,7 @@ jobs:
                       assert response.status == 200
                       assert response.headers.get_content_type() == "application/json"
                       assert info["name"] == "liminal-rail-codex"
-                      assert info["version"] == "0.2.0"
+                      assert info["version"] == "0.3.0"
                       break
               except Exception:
                   pass

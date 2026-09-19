@@ -26,7 +26,7 @@ func TestPluginPackage(t *testing.T) {
 	}
 	if portable.Schema != "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json" ||
 		portable.Name != filepath.Base(root) ||
-		portable.Version != "0.2.0" {
+		portable.Version != "0.3.0" {
 		t.Fatalf("incorrect portable plugin manifest: %#v", portable)
 	}
 	if _, ok := portable.Extensions["com.openai"]; !ok {
@@ -67,7 +67,7 @@ func TestPluginPackage(t *testing.T) {
 	if err := json.Unmarshal(compatData, &compat); err != nil {
 		t.Fatal(err)
 	}
-	if compat.Name != filepath.Base(root) || compat.Version != "0.2.0" || compat.Skills != "./skills/" {
+	if compat.Name != filepath.Base(root) || compat.Version != "0.3.0" || compat.Skills != "./skills/" {
 		t.Fatalf("incorrect compatibility manifest: %#v", compat)
 	}
 
@@ -107,7 +107,25 @@ func TestPluginPackage(t *testing.T) {
 		}
 	}
 
-	if strings.Contains(string(portableData)+string(mcpData)+string(metroSkill)+string(verifySkill), "[TODO:") {
+	verifyCodingSkill, err := os.ReadFile(filepath.Join(root, compat.Skills, "verified-coding/SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"name: verified-coding",
+		"liminal_coding_start",
+		"liminal_coding_verify",
+		"VERIFIED",
+		"stale_base",
+		"path_outside_contract",
+		"required_check_not_success",
+	} {
+		if !strings.Contains(string(verifyCodingSkill), required) {
+			t.Fatalf("verified-coding skill missing %q", required)
+		}
+	}
+
+	if strings.Contains(string(portableData)+string(mcpData)+string(metroSkill)+string(verifySkill)+string(verifyCodingSkill), "[TODO:") {
 		t.Fatal("unfinished plugin package")
 	}
 }
