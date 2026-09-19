@@ -239,7 +239,6 @@ func TestMCPStreamableHTTPExposesStatusAndDecide(t *testing.T) {
 	}
 }
 
-
 type fakeCodingGitHub struct{}
 
 func (fakeCodingGitHub) GetIssue(context.Context, string, int) (codingworkflow.GitHubIssue, error) {
@@ -275,11 +274,11 @@ func (fakeCodingGitHub) GetPullRequestFiles(context.Context, string, int) ([]cod
 func (fakeCodingGitHub) GetCheckRuns(context.Context, string, string) ([]codingworkflow.GitHubCheckRun, error) {
 	return []codingworkflow.GitHubCheckRun{
 		{
-			ID: 200,
-			Name: "coding-unit",
-			HeadSHA: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-			Status: "completed",
-			Conclusion: "success",
+			ID:          200,
+			Name:        "coding-unit",
+			HeadSHA:     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			Status:      "completed",
+			Conclusion:  "success",
 			CompletedAt: "2026-09-19T15:00:00Z",
 		},
 	}, nil
@@ -318,12 +317,12 @@ func TestMCPStreamableHTTPCodingWorkflow(t *testing.T) {
 	startResult, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "liminal_coding_start",
 		Arguments: map[string]any{
-			"workflow_id": "workflow-16",
-			"request_id": "request-16",
-			"action_id": "action-16",
-			"repository": "safal207/Liminal-Rail-Metro",
+			"workflow_id":  "workflow-16",
+			"request_id":   "request-16",
+			"action_id":    "action-16",
+			"repository":   "safal207/Liminal-Rail-Metro",
 			"issue_number": 16,
-			"base_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"base_sha":     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			"allowed_path_prefixes": []string{
 				"internal/codingworkflow",
 				"plugins/liminal-rail-metro",
@@ -360,7 +359,7 @@ func TestMCPStreamableHTTPCodingWorkflow(t *testing.T) {
 	verifyResult, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "liminal_coding_verify",
 		Arguments: map[string]any{
-			"contract": started.Contract,
+			"contract":            started.Contract,
 			"pull_request_number": 17,
 		},
 	})
