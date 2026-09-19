@@ -4,8 +4,9 @@ on:
   pull_request:
     paths:
       - "cmd/codex-mcp/**"
+      - "cmd/metro-codex/plugin_test.go"
       - "internal/codexplugin/**"
-      - "plugins/liminal-rail/**"
+      - "plugins/liminal-rail-metro/**"
       - ".agents/plugins/marketplace.json"
       - ".codex/config.toml"
       - "go.mod"
@@ -35,15 +36,22 @@ jobs:
           import json
           from pathlib import Path
 
-          root = Path("plugins/liminal-rail")
+          root = Path("plugins/liminal-rail-metro")
           plugin = json.loads((root / "plugin.json").read_text())
           mcp = json.loads((root / "mcp.json").read_text())
+          compat = json.loads((root / ".codex-plugin/plugin.json").read_text())
           market = json.loads(Path(".agents/plugins/marketplace.json").read_text())
+          config = Path(".codex/config.toml").read_text()
 
           assert plugin["$schema"] == "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
-          assert plugin["name"] == "liminal-rail"
+          assert plugin["name"] == "liminal-rail-metro"
           assert plugin["version"] == "0.1.0"
-          assert (root / "skills/route-action/SKILL.md").is_file()
+          assert "com.openai" in plugin["extensions"]
+
+          assert compat["name"] == "liminal-rail-metro"
+          assert compat["version"] == "0.1.0"
+          assert compat["skills"] == "./skills/"
+          assert (root / "skills/metro-action/SKILL.md").is_file()
           assert (root / "skills/verify-proof/SKILL.md").is_file()
 
           server = mcp["mcpServers"]["liminal_rail"]
@@ -52,8 +60,9 @@ jobs:
           assert server["url"] == "http://127.0.0.1:8787/mcp"
 
           entry = market["plugins"][0]
-          assert entry["name"] == "liminal-rail"
-          assert entry["source"]["path"] == "./plugins/liminal-rail"
+          assert entry["name"] == "liminal-rail-metro"
+          assert entry["source"]["path"] == "./plugins/liminal-rail-metro"
+          assert '[plugins."liminal-rail-metro@liminal-rail-local"]' in config
           print("portable plugin structure: PASS")
           PY
 
@@ -62,7 +71,7 @@ jobs:
 
       - name: Require gofmt
         run: |
-          unformatted="$(gofmt -l ./cmd/codex-mcp ./internal/codexplugin)"
+          unformatted="$(gofmt -l ./cmd/codex-mcp ./internal/codexplugin ./cmd/metro-codex/plugin_test.go)"
           if [ -n "$unformatted" ]; then
             echo "Go files require gofmt:" >&2
             echo "$unformatted" >&2
@@ -73,11 +82,16 @@ jobs:
       - name: Go unit and MCP round-trip tests
         run: go test ./...
 
-      - name: Go race detector
-        run: go test -race ./internal/codexplugin ./internal/decisionplane ./internal/lifetrastation
+      - name: Go vet
+        run: go vet ./...
 
-      - name: Build MCP server
-        run: go build ./cmd/codex-mcp
+      - name: Go race detector
+        run: go test -race ./internal/codexplugin ./internal/codexadapter ./internal/decisionplane ./internal/lifetrastation
+
+      - name: Build MCP and CLI surfaces
+        run: |
+          go build ./cmd/codex-mcp
+          go build ./cmd/metro-codex
 
       - name: Upload resolved module files
         uses: actions/upload-artifact@v4
