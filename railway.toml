@@ -1,8 +1,0 @@
-[build]
-builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile.codex-mcp"
-
-[deploy]
-healthcheckPath = "/healthz"
-healthcheckTimeout = 30
-restartPolicyType = "ALWAYS"
