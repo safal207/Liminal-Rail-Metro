@@ -11,11 +11,12 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/safal207/Liminal-Rail-Metro/internal/codingworkflow"
 	"github.com/safal207/Liminal-Rail-Metro/internal/decisionplane"
 	"github.com/safal207/Liminal-Rail-Metro/internal/metro"
 )
 
-const Version = "0.2.0"
+const Version = "0.3.0"
 
 type Config struct {
 	RemoteEndpoint         string
@@ -23,12 +24,16 @@ type Config struct {
 	RemoteBearerToken      string
 	RemoteTimeout          time.Duration
 	RemoteMaxResponseBytes int64
+	GitHubClient           *codingworkflow.GitHubClient
+	CodingSigner           *codingworkflow.Signer
 }
 
 type Runtime struct {
 	provider     decisionplane.Provider
 	providerMode string
 	providerID   string
+	github       *codingworkflow.GitHubClient
+	codingSigner *codingworkflow.Signer
 }
 
 type ChoiceInput struct {
@@ -86,20 +91,61 @@ type VerifyOutput struct {
 type StatusInput struct{}
 
 type StatusOutput struct {
-	Version              string   `json:"version"`
-	ProviderMode         string   `json:"provider_mode"`
-	ProviderID           string   `json:"provider_id"`
-	Tools                []string `json:"tools"`
-	DecisionBinding      string   `json:"decision_binding"`
-	SideEffectPolicy     string   `json:"side_effect_policy"`
-	CompletionPolicy     string   `json:"completion_policy"`
-	Transport            string   `json:"transport"`
-	PublicDeploymentNote string   `json:"public_deployment_note"`
+	Version                 string   `json:"version"`
+	ProviderMode            string   `json:"provider_mode"`
+	ProviderID              string   `json:"provider_id"`
+	Tools                   []string `json:"tools"`
+	DecisionBinding         string   `json:"decision_binding"`
+	SideEffectPolicy        string   `json:"side_effect_policy"`
+	CompletionPolicy        string   `json:"completion_policy"`
+	Transport               string   `json:"transport"`
+	CodingWorkflowEnabled   bool     `json:"coding_workflow_enabled"`
+	CodingIssuerID          string   `json:"coding_issuer_id,omitempty"`
+	CodingIssuerKeyID       string   `json:"coding_issuer_key_id,omitempty"`
+	CodingIssuerPublicKey   string   `json:"coding_issuer_public_key_base64,omitempty"`
+	CodingEvidenceSource    string   `json:"coding_evidence_source"`
+	PublicDeploymentNote    string   `json:"public_deployment_note"`
+}
+
+type CodingStartInput struct {
+	WorkflowID          string             `json:"workflow_id"`
+	RequestID           string             `json:"request_id"`
+	ActionID            string             `json:"action_id"`
+	Repository          string             `json:"repository"`
+	IssueNumber         int                `json:"issue_number"`
+	BaseSHA             string             `json:"base_sha"`
+	AllowedPathPrefixes []string           `json:"allowed_path_prefixes"`
+	RequiredChecks      []string           `json:"required_checks"`
+	Choices             []ChoiceInput      `json:"choices"`
+	Scores              map[string]float64 `json:"scores,omitempty"`
+}
+
+type CodingStartOutput struct {
+	Status   string                   `json:"status"`
+	Contract *codingworkflow.Contract `json:"contract,omitempty"`
+}
+
+type CodingVerifyInput struct {
+	Contract          codingworkflow.Contract `json:"contract"`
+	PullRequestNumber int                     `json:"pull_request_number"`
 }
 
 func NewRuntime(config Config) (*Runtime, error) {
+	github := config.GitHubClient
+	if github == nil {
+		var err error
+		github, err = codingworkflow.NewPublicGitHubClient()
+		if err != nil {
+			return nil, err
+		}
+	}
 	if config.RemoteEndpoint == "" {
-		return &Runtime{providerMode: "static-proof", providerID: "codex-static-proof"}, nil
+		return &Runtime{
+			providerMode: "static-proof",
+			providerID:   "codex-static-proof",
+			github:       github,
+			codingSigner: config.CodingSigner,
+		}, nil
 	}
 	if config.RemoteProviderID == "" {
 		return nil, errors.New("remote provider id is required when remote endpoint is configured")
@@ -122,10 +168,25 @@ func NewRuntime(config Config) (*Runtime, error) {
 		provider:     provider,
 		providerMode: "remote",
 		providerID:   config.RemoteProviderID,
+		github:       github,
+		codingSigner: config.CodingSigner,
 	}, nil
 }
 
 func NewRuntimeFromEnv() (*Runtime, error) {
+	var codingSigner *codingworkflow.Signer
+	if encodedKey := strings.TrimSpace(os.Getenv("LIMINAL_CODING_SIGNING_KEY_BASE64")); encodedKey != "" {
+		issuerID := strings.TrimSpace(os.Getenv("LIMINAL_CODING_ISSUER_ID"))
+		if issuerID == "" {
+			issuerID = "liminal-rail-codex"
+		}
+		var err error
+		codingSigner, err = codingworkflow.NewSignerFromBase64(issuerID, encodedKey)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	timeout, err := durationFromEnvMillis("LIMINAL_REMOTE_TIMEOUT_MS")
 	if err != nil {
 		return nil, err
@@ -140,6 +201,7 @@ func NewRuntimeFromEnv() (*Runtime, error) {
 		RemoteBearerToken:      os.Getenv("LIMINAL_REMOTE_PROVIDER_TOKEN"),
 		RemoteTimeout:          timeout,
 		RemoteMaxResponseBytes: maxBytes,
+		CodingSigner:           codingSigner,
 	})
 }
 
@@ -163,6 +225,16 @@ func (runtime *Runtime) NewMCPServer() *mcp.Server {
 		Name:        "liminal_status",
 		Description: "Report Liminal Rail Codex plugin runtime mode and proof-boundary capabilities. This is read-only and does not claim live station metrics.",
 	}, runtime.status)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "liminal_coding_start",
+		Description: "Create a server-signed bounded coding contract from one open public GitHub issue before Codex edits code.",
+	}, runtime.codingStart)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "liminal_coding_verify",
+		Description: "Verify one server-signed coding contract against a public GitHub pull request, allowed changed paths, and required successful checks on the exact PR head SHA.",
+	}, runtime.codingVerify)
 
 	return server
 }
@@ -289,18 +361,64 @@ func (runtime *Runtime) verify(_ context.Context, _ *mcp.CallToolRequest, input 
 	return nil, output, nil
 }
 
+func (runtime *Runtime) codingStart(ctx context.Context, _ *mcp.CallToolRequest, input CodingStartInput) (*mcp.CallToolResult, CodingStartOutput, error) {
+	if runtime.codingSigner == nil {
+		return nil, CodingStartOutput{}, errors.New("coding workflow signing authority is not configured")
+	}
+	choices := make([]decisionplane.Choice, 0, len(input.Choices))
+	for _, choice := range input.Choices {
+		choices = append(choices, decisionplane.Choice{ID: choice.ID, Target: choice.Target, Label: choice.Label})
+	}
+	provider := runtime.provider
+	if provider == nil {
+		if len(input.Scores) == 0 {
+			return nil, CodingStartOutput{}, errors.New("scores are required in static-proof mode")
+		}
+		provider = decisionplane.StaticProvider{ID: runtime.providerID, Scores: input.Scores}
+	}
+	contract, err := codingworkflow.Start(ctx, runtime.github, runtime.codingSigner, provider, codingworkflow.StartInput{
+		WorkflowID: input.WorkflowID, RequestID: input.RequestID, ActionID: input.ActionID,
+		Repository: input.Repository, IssueNumber: input.IssueNumber, BaseSHA: input.BaseSHA,
+		AllowedPathPrefixes: input.AllowedPathPrefixes, RequiredChecks: input.RequiredChecks, Choices: choices,
+	})
+	if err != nil {
+		return nil, CodingStartOutput{}, err
+	}
+	return nil, CodingStartOutput{Status: "AUTHORIZED", Contract: &contract}, nil
+}
+
+func (runtime *Runtime) codingVerify(ctx context.Context, _ *mcp.CallToolRequest, input CodingVerifyInput) (*mcp.CallToolResult, codingworkflow.Verification, error) {
+	if runtime.codingSigner == nil {
+		return nil, codingworkflow.Verification{}, errors.New("coding workflow signing authority is not configured")
+	}
+	verification, err := codingworkflow.Verify(ctx, runtime.github, runtime.codingSigner, input.Contract, input.PullRequestNumber)
+	if err != nil {
+		return nil, codingworkflow.Verification{}, err
+	}
+	return nil, verification, nil
+}
+
 func (runtime *Runtime) status(_ context.Context, _ *mcp.CallToolRequest, _ StatusInput) (*mcp.CallToolResult, StatusOutput, error) {
-	return nil, StatusOutput{
-		Version:              Version,
-		ProviderMode:         runtime.providerMode,
-		ProviderID:           runtime.providerID,
-		Tools:                []string{"liminal_decide", "liminal_verify", "liminal_status"},
-		DecisionBinding:      "request_id + action_id + packet_hash + state_hash + choices_hash",
-		SideEffectPolicy:     "side_effect=true -> REQUIRE_APPROVAL",
-		CompletionPolicy:     "only SUCCEEDED receipt with matching packet/route/result hashes verifies completion",
-		Transport:            "MCP Streamable HTTP",
-		PublicDeploymentNote: "local development binds to localhost; hosted mode binds to 0.0.0.0:$PORT and remains proof-only/anonymous until OAuth is required by user-specific or effectful tools",
-	}, nil
+	output := StatusOutput{
+		Version:               Version,
+		ProviderMode:          runtime.providerMode,
+		ProviderID:            runtime.providerID,
+		Tools:                 []string{"liminal_decide", "liminal_verify", "liminal_status", "liminal_coding_start", "liminal_coding_verify"},
+		DecisionBinding:       "request_id + action_id + packet_hash + state_hash + choices_hash",
+		SideEffectPolicy:      "side_effect=true -> REQUIRE_APPROVAL",
+		CompletionPolicy:      "only SUCCEEDED receipt with matching packet/route/result hashes verifies completion",
+		Transport:             "MCP Streamable HTTP",
+		CodingWorkflowEnabled: runtime.codingSigner != nil,
+		CodingEvidenceSource:  "public GitHub issue/PR/files/check-runs on exact head SHA",
+		PublicDeploymentNote:  "coding v0.3 remains public/read-only toward GitHub; GitHub writes and private repo access are out of scope",
+	}
+	if runtime.codingSigner != nil {
+		issuer := runtime.codingSigner.Issuer()
+		output.CodingIssuerID = issuer.IssuerID
+		output.CodingIssuerKeyID = issuer.IssuerKeyID
+		output.CodingIssuerPublicKey = issuer.IssuerPublicKey
+	}
+	return nil, output, nil
 }
 
 func durationFromEnvMillis(name string) (time.Duration, error) {
