@@ -9,14 +9,14 @@ import (
 )
 
 const (
-	ManifestProtocol       = "liminal.policy-authority.manifest.v1.1"
-	SignedManifestProtocol = "liminal.policy-authority.signed-manifest.v1.1"
-	TrustRootProtocol      = "liminal.policy-authority.trust-root.v1.1"
-	RotationProtocol       = "liminal.policy-authority.rotation.v1.1"
-	AuthorizationProtocol  = "liminal.policy-authority.authorization.v1.1"
+	ManifestProtocol            = "liminal.policy-authority.manifest.v1.1"
+	SignedManifestProtocol      = "liminal.policy-authority.signed-manifest.v1.1"
+	TrustRootProtocol           = "liminal.policy-authority.trust-root.v1.1"
+	RotationProtocol            = "liminal.policy-authority.rotation.v1.1"
+	AuthorizationProtocol       = "liminal.policy-authority.authorization.v1.1"
 	OperationDescriptorProtocol = "liminal.policy-authority.operation-descriptor.v1.1"
-	ChainHeadProtocol = "liminal.policy-authority.chain-head.v1.1"
-	SignatureEd25519       = "ed25519"
+	ChainHeadProtocol           = "liminal.policy-authority.chain-head.v1.1"
+	SignatureEd25519            = "ed25519"
 )
 
 type Binding struct {
