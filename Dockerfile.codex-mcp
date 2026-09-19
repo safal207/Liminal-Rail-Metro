@@ -1,0 +1,18 @@
+FROM golang:1.23.12-bookworm AS build
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/codex-mcp ./cmd/codex-mcp
+
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY --from=build /out/codex-mcp /codex-mcp
+
+ENV PORT=8787
+EXPOSE 8787
+
+ENTRYPOINT ["/codex-mcp"]

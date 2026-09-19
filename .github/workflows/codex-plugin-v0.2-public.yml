@@ -1,0 +1,131 @@
+name: Codex Plugin v0.2 Public
+
+on:
+  pull_request:
+    paths:
+      - "cmd/codex-mcp/**"
+      - "internal/codexplugin/**"
+      - "plugins/liminal-rail-metro/**"
+      - "Dockerfile.codex-mcp"
+      - ".github/workflows/codex-plugin-v0.2-public.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-mcp:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go 1.23
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.23.x
+          cache: false
+
+      - name: Require gofmt
+        run: |
+          unformatted="$(gofmt -l ./cmd/codex-mcp ./internal/codexplugin)"
+          if [ -n "$unformatted" ]; then
+            echo "Go files require gofmt:" >&2
+            echo "$unformatted" >&2
+            gofmt -d $unformatted
+            exit 1
+          fi
+
+      - name: Public boundary unit tests
+        run: go test ./internal/codexplugin ./cmd/codex-mcp
+
+      - name: Race detector
+        run: go test -race ./internal/codexplugin ./internal/decisionplane
+
+      - name: Build hosted binary
+        run: go build ./cmd/codex-mcp
+
+      - name: Build deployment container
+        run: docker build -f Dockerfile.codex-mcp -t liminal-rail-codex-mcp:v0.2 .
+
+      - name: Smoke hosted listener
+        run: |
+          PORT=18787 go run ./cmd/codex-mcp >server.log 2>&1 &
+          pid=$!
+          trap 'kill $pid || true' EXIT
+          python3 - <<'PY'
+          import json, time, urllib.request
+          url = "http://127.0.0.1:18787/healthz"
+          for _ in range(80):
+              try:
+                  with urllib.request.urlopen(url, timeout=1) as response:
+                      body = json.load(response)
+                      assert response.status == 200
+                      assert body["status"] == "ok"
+                      assert body["version"] == "0.2.0"
+                      break
+              except Exception:
+                  time.sleep(0.1)
+          else:
+              raise SystemExit("hosted listener did not become healthy")
+          print("hosted listener: PASS")
+          PY
+
+      - name: Probe live HTTPS MCP
+        run: |
+          python3 - <<'PY'
+          import json, time, urllib.request
+
+          base = "https://liminal-rail-codex-mcp-production.up.railway.app"
+
+          health = None
+          for _ in range(120):
+              try:
+                  with urllib.request.urlopen(base + "/healthz", timeout=2) as response:
+                      health = json.load(response)
+                      if response.status == 200 and health == {"status": "ok", "version": "0.2.0"}:
+                          break
+              except Exception:
+                  pass
+              time.sleep(1)
+          else:
+              raise SystemExit(f"live health probe failed: {health!r}")
+
+          payload = json.dumps({
+              "jsonrpc": "2.0",
+              "id": 1,
+              "method": "initialize",
+              "params": {
+                  "protocolVersion": "2024-11-05",
+                  "capabilities": {},
+                  "clientInfo": {"name": "liminal-ci", "version": "0.2.0"},
+              },
+          }).encode()
+          request = urllib.request.Request(
+              base + "/mcp",
+              data=payload,
+              method="POST",
+              headers={
+                  "Content-Type": "application/json",
+                  "Accept": "application/json, text/event-stream",
+              },
+          )
+          result = None
+          for _ in range(120):
+              try:
+                  with urllib.request.urlopen(request, timeout=3) as response:
+                      result = json.load(response)
+                      info = result["result"]["serverInfo"]
+                      assert response.status == 200
+                      assert response.headers.get_content_type() == "application/json"
+                      assert info["name"] == "liminal-rail-codex"
+                      assert info["version"] == "0.2.0"
+                      break
+              except Exception:
+                  pass
+              time.sleep(1)
+          else:
+              raise SystemExit(f"live MCP initialize probe failed: {result!r}")
+
+          print("live HTTPS MCP: PASS")
+          PY

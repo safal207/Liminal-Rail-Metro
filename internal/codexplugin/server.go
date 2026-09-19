@@ -15,7 +15,7 @@ import (
 	"github.com/safal207/Liminal-Rail-Metro/internal/metro"
 )
 
-const Version = "0.1.0"
+const Version = "0.2.0"
 
 type Config struct {
 	RemoteEndpoint         string
@@ -299,7 +299,7 @@ func (runtime *Runtime) status(_ context.Context, _ *mcp.CallToolRequest, _ Stat
 		SideEffectPolicy:     "side_effect=true -> REQUIRE_APPROVAL",
 		CompletionPolicy:     "only SUCCEEDED receipt with matching packet/route/result hashes verifies completion",
 		Transport:            "MCP Streamable HTTP",
-		PublicDeploymentNote: "local development binds to localhost; public plugin distribution requires a deployed HTTPS MCP endpoint",
+		PublicDeploymentNote: "local development binds to localhost; hosted mode binds to 0.0.0.0:$PORT and remains proof-only/anonymous until OAuth is required by user-specific or effectful tools",
 	}, nil
 }
 
