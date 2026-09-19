@@ -26,7 +26,7 @@ func TestPluginPackage(t *testing.T) {
 	}
 	if portable.Schema != "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json" ||
 		portable.Name != filepath.Base(root) ||
-		portable.Version != "0.2.0" {
+		portable.Version != "0.3.0" {
 		t.Fatalf("incorrect portable plugin manifest: %#v", portable)
 	}
 	if _, ok := portable.Extensions["com.openai"]; !ok {
@@ -67,7 +67,7 @@ func TestPluginPackage(t *testing.T) {
 	if err := json.Unmarshal(compatData, &compat); err != nil {
 		t.Fatal(err)
 	}
-	if compat.Name != filepath.Base(root) || compat.Version != "0.2.0" || compat.Skills != "./skills/" {
+	if compat.Name != filepath.Base(root) || compat.Version != "0.3.0" || compat.Skills != "./skills/" {
 		t.Fatalf("incorrect compatibility manifest: %#v", compat)
 	}
 
