@@ -22,6 +22,13 @@ const (
 	maxGitHubCheckRuns            = 100
 )
 
+type GitHubEvidenceReader interface {
+	GetIssue(context.Context, string, int) (GitHubIssue, error)
+	GetPullRequest(context.Context, string, int) (GitHubPullRequest, error)
+	GetPullRequestFiles(context.Context, string, int) ([]GitHubPRFile, error)
+	GetCheckRuns(context.Context, string, string) ([]GitHubCheckRun, error)
+}
+
 type GitHubClient struct {
 	base             *url.URL
 	client           *http.Client
