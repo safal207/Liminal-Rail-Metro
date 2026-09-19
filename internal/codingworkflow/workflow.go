@@ -214,7 +214,7 @@ func (signer *Signer) Issuer() IssuerInfo {
 	}
 }
 
-func Start(ctx context.Context, github *GitHubClient, signer *Signer, provider decisionplane.Provider, input StartInput) (Contract, error) {
+func Start(ctx context.Context, github GitHubEvidenceReader, signer *Signer, provider decisionplane.Provider, input StartInput) (Contract, error) {
 	if github == nil {
 		return Contract{}, errors.New("GitHub client is required")
 	}
@@ -314,7 +314,7 @@ func Start(ctx context.Context, github *GitHubClient, signer *Signer, provider d
 	return contract, nil
 }
 
-func Verify(ctx context.Context, github *GitHubClient, signer *Signer, contract Contract, pullRequestNumber int) (Verification, error) {
+func Verify(ctx context.Context, github GitHubEvidenceReader, signer *Signer, contract Contract, pullRequestNumber int) (Verification, error) {
 	if github == nil {
 		return Verification{}, errors.New("GitHub client is required")
 	}
