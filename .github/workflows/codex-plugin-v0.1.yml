@@ -1,4 +1,4 @@
-name: Codex Plugin v0.1
+name: Codex Plugin Compatibility
 
 on:
   pull_request:
@@ -45,11 +45,11 @@ jobs:
 
           assert plugin["$schema"] == "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
           assert plugin["name"] == "liminal-rail-metro"
-          assert plugin["version"] == "0.1.0"
+          assert plugin["version"] == "0.2.0"
           assert "com.openai" in plugin["extensions"]
 
           assert compat["name"] == "liminal-rail-metro"
-          assert compat["version"] == "0.1.0"
+          assert compat["version"] == "0.2.0"
           assert compat["skills"] == "./skills/"
           assert (root / "skills/metro-action/SKILL.md").is_file()
           assert (root / "skills/verify-proof/SKILL.md").is_file()
@@ -57,7 +57,7 @@ jobs:
           server = mcp["mcpServers"]["liminal_rail"]
           assert mcp["$schema"] == "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"
           assert server["type"] == "streamable-http"
-          assert server["url"] == "http://127.0.0.1:8787/mcp"
+          assert server["url"] == "https://liminal-rail-codex-mcp-production.up.railway.app/mcp"
 
           entry = market["plugins"][0]
           assert entry["name"] == "liminal-rail-metro"
@@ -96,7 +96,7 @@ jobs:
       - name: Upload resolved module files
         uses: actions/upload-artifact@v4
         with:
-          name: codex-plugin-v0.1-modules
+          name: codex-plugin-v0.2-modules
           path: |
             go.mod
             go.sum
