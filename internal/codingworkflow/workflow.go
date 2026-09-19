@@ -29,8 +29,99 @@ const (
 )
 
 var (
-	repositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
-	shaPattern        = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	repositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+package codingworkflow
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"path"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/safal207/Liminal-Rail-Metro/internal/decisionplane"
+	"github.com/safal207/Liminal-Rail-Metro/internal/metro"
+)
+
+const (
+	ContractProtocol = "liminal.codex.coding.contract.v0.3"
+	ReceiptProtocol  = "liminal.codex.coding.receipt.v0.3"
+	SignatureEd25519 = "ed25519"
+
+	StatusVerified = "VERIFIED"
+	StatusHold     = "HOLD"
+)
+
+)
+	shaPattern        = regexp.MustCompile(`^[0-9a-f]{40}package codingworkflow
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"path"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/safal207/Liminal-Rail-Metro/internal/decisionplane"
+	"github.com/safal207/Liminal-Rail-Metro/internal/metro"
+)
+
+const (
+	ContractProtocol = "liminal.codex.coding.contract.v0.3"
+	ReceiptProtocol  = "liminal.codex.coding.receipt.v0.3"
+	SignatureEd25519 = "ed25519"
+
+	StatusVerified = "VERIFIED"
+	StatusHold     = "HOLD"
+)
+
+)
+	sha256Pattern     = regexp.MustCompile(`^[0-9a-f]{64}package codingworkflow
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"path"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/safal207/Liminal-Rail-Metro/internal/decisionplane"
+	"github.com/safal207/Liminal-Rail-Metro/internal/metro"
+)
+
+const (
+	ContractProtocol = "liminal.codex.coding.contract.v0.3"
+	ReceiptProtocol  = "liminal.codex.coding.receipt.v0.3"
+	SignatureEd25519 = "ed25519"
+
+	StatusVerified = "VERIFIED"
+	StatusHold     = "HOLD"
+)
+
+)
 )
 
 type Signer struct {
@@ -499,6 +590,13 @@ func (signer *Signer) VerifyReceipt(receipt Receipt) error {
 	if !ed25519.Verify(signer.publicKey, materialBytes, signature) {
 		return errors.New("coding receipt signature verification failed")
 	}
+	if !repositoryPattern.MatchString(receipt.Repository) || receipt.IssueNumber <= 0 || receipt.PullRequestNumber <= 0 ||
+		!shaPattern.MatchString(receipt.BaseSHA) || !shaPattern.MatchString(receipt.HeadSHA) ||
+		!sha256Pattern.MatchString(receipt.ContractHash) || !sha256Pattern.MatchString(receipt.FilesHash) ||
+		!sha256Pattern.MatchString(receipt.ChecksHash) || !sha256Pattern.MatchString(receipt.ReceiptHash) ||
+		receipt.PullRequestURL == "" || receipt.VerifiedAt == "" || len(receipt.RequiredChecks) == 0 {
+		return errors.New("coding receipt fields are incomplete or malformed")
+	}
 	return nil
 }
 
@@ -649,9 +747,13 @@ func normalizeChecks(values []string) ([]string, error) {
 func validateContractShape(contract Contract) error {
 	if contract.WorkflowID == "" || !repositoryPattern.MatchString(contract.Repository) ||
 		contract.IssueNumber <= 0 || !shaPattern.MatchString(contract.BaseSHA) ||
-		contract.IssueURL == "" || contract.IssueTitle == "" || contract.IssueSnapshotHash == "" ||
-		contract.CreatedAt == "" || contract.ContractHash == "" || contract.Signature == "" {
+		contract.IssueURL == "" || contract.IssueTitle == "" || !sha256Pattern.MatchString(contract.IssueSnapshotHash) ||
+		contract.CreatedAt == "" || !sha256Pattern.MatchString(contract.ContractHash) || contract.Signature == "" {
 		return errors.New("coding contract fields are incomplete")
+	}
+	expectedIssueURL := fmt.Sprintf("https://github.com/%s/issues/%d", contract.Repository, contract.IssueNumber)
+	if contract.IssueURL != expectedIssueURL {
+		return errors.New("coding contract issue URL does not match repository and issue number")
 	}
 	paths, err := normalizePaths(contract.AllowedPathPrefixes)
 	if err != nil {
@@ -663,6 +765,48 @@ func validateContractShape(contract Contract) error {
 	}
 	if !equalStrings(paths, contract.AllowedPathPrefixes) || !equalStrings(checks, contract.RequiredChecks) {
 		return errors.New("coding contract paths/checks are not canonical")
+	}
+	if contract.Packet.Protocol != metro.PacketProtocol || contract.Packet.SourceAgent != "codex" ||
+		contract.Packet.Action.Kind != "codex.github.coding-workflow" || contract.Packet.Constraints.SideEffect {
+		return errors.New("coding contract packet shape is invalid")
+	}
+	expectedInputs := map[string]any{
+		"repository":            contract.Repository,
+		"issue_number":          contract.IssueNumber,
+		"issue_snapshot_hash":   contract.IssueSnapshotHash,
+		"base_sha":              contract.BaseSHA,
+		"allowed_path_prefixes": contract.AllowedPathPrefixes,
+		"required_checks":       contract.RequiredChecks,
+	}
+	wantInputs, err := metro.HashJSON(expectedInputs)
+	if err != nil {
+		return err
+	}
+	gotInputs, err := metro.HashJSON(contract.Packet.Action.Inputs)
+	if err != nil || wantInputs != gotInputs {
+		return errors.New("coding contract packet inputs do not match contract")
+	}
+	expectedState := map[string]any{
+		"repository":          contract.Repository,
+		"issue_number":        contract.IssueNumber,
+		"issue_title":         contract.IssueTitle,
+		"issue_snapshot_hash": contract.IssueSnapshotHash,
+		"stage":               "coding",
+	}
+	wantState, err := metro.HashJSON(expectedState)
+	if err != nil {
+		return err
+	}
+	gotState, err := metro.HashJSON(contract.Request.State)
+	if err != nil || wantState != gotState {
+		return errors.New("coding contract decision state does not match contract")
+	}
+	targets := make([]string, 0, len(contract.Request.Choices))
+	for _, choice := range contract.Request.Choices {
+		targets = append(targets, choice.Target)
+	}
+	if !equalStrings(targets, contract.Packet.AllowedTargets) {
+		return errors.New("coding contract allowed targets do not match decision choices")
 	}
 	return nil
 }
