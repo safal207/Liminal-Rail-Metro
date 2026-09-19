@@ -457,6 +457,9 @@ func (signer *Signer) VerifyContract(contract Contract) error {
 	if err != nil {
 		return err
 	}
+	if recomputedGate.Route != nil && contract.Gate.Route != nil {
+		recomputedGate.Route.DecidedAt = contract.Gate.Route.DecidedAt
+	}
 	want, err := metro.HashJSON(recomputedGate)
 	if err != nil {
 		return err
