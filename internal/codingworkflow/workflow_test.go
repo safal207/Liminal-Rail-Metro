@@ -98,6 +98,23 @@ func TestVerifyHoldsTamperedContract(t *testing.T) {
 	}
 }
 
+func TestVerifyRejectsInternallyContradictorySignedContract(t *testing.T) {
+	client, closeServer := fixtureClient(t, defaultFixture())
+	defer closeServer()
+	signer := testSigner(t, 7)
+	contract, err := Start(context.Background(), client, signer, testProvider(), testStartInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract.Packet.Action.Inputs["repository"] = "other/repo"
+	if err := signer.signContract(&contract); err != nil {
+		t.Fatal(err)
+	}
+	if err := signer.VerifyContract(contract); err == nil || !strings.Contains(err.Error(), "packet inputs") {
+		t.Fatalf("internally contradictory signed contract must be rejected, got %v", err)
+	}
+}
+
 func TestVerifyHoldsContractFromDifferentIssuer(t *testing.T) {
 	client, closeServer := fixtureClient(t, defaultFixture())
 	defer closeServer()
