@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liminal-rail.local/protocol/policy.authority.rotation.v1.1.json",
+  "title": "Liminal Policy Authority Rotation v1.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "authority_id", "from_generation", "to_generation", "from_manifest_hash", "to_manifest_hash", "from_signed_manifest_hash", "to_signed_manifest_hash", "from_issuer_id", "from_issuer_key_id", "to_issuer_id", "to_issuer_key_id", "allow_weakening", "issued_at", "signature_algorithm", "signature_base64", "rotation_hash"],
+  "properties": {
+    "protocol": {"const": "liminal.policy-authority.rotation.v1.1"},
+    "authority_id": {"type": "string", "minLength": 1},
+    "from_generation": {"type": "integer", "minimum": 1},
+    "to_generation": {"type": "integer", "minimum": 2},
+    "from_manifest_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "to_manifest_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "from_signed_manifest_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "to_signed_manifest_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "from_issuer_id": {"type": "string", "minLength": 1},
+    "from_issuer_key_id": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "to_issuer_id": {"type": "string", "minLength": 1},
+    "to_issuer_key_id": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "allow_weakening": {"type": "boolean"},
+    "weakened_operations": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "issued_at": {"type": "string", "minLength": 1},
+    "signature_algorithm": {"const": "ed25519"},
+    "signature_base64": {"type": "string", "minLength": 1},
+    "rotation_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

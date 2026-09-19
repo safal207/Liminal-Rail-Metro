@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liminal-rail.local/protocol/policy.authority.trust-root.v1.1.json",
+  "title": "Liminal Policy Authority Trust Root v1.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "authority_id", "root_generation", "root_manifest_hash", "root_signed_manifest_hash", "issuer_id", "issuer_key_id"],
+  "properties": {
+    "protocol": {"const": "liminal.policy-authority.trust-root.v1.1"},
+    "authority_id": {"type": "string", "minLength": 1},
+    "root_generation": {"type": "integer", "minimum": 1},
+    "root_manifest_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "root_signed_manifest_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "issuer_id": {"type": "string", "minLength": 1},
+    "issuer_key_id": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

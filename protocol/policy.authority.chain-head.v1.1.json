@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liminal-rail.local/protocol/policy.authority.chain-head.v1.1.json",
+  "title": "Liminal Policy Authority Chain Head v1.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "authority_id",
+    "generation",
+    "signed_manifest_hash",
+    "head_hash"
+  ],
+  "properties": {
+    "protocol": {
+      "const": "liminal.policy-authority.chain-head.v1.1"
+    },
+    "authority_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "signed_manifest_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "rotation_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "head_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}
