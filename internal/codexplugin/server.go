@@ -91,20 +91,20 @@ type VerifyOutput struct {
 type StatusInput struct{}
 
 type StatusOutput struct {
-	Version                 string   `json:"version"`
-	ProviderMode            string   `json:"provider_mode"`
-	ProviderID              string   `json:"provider_id"`
-	Tools                   []string `json:"tools"`
-	DecisionBinding         string   `json:"decision_binding"`
-	SideEffectPolicy        string   `json:"side_effect_policy"`
-	CompletionPolicy        string   `json:"completion_policy"`
-	Transport               string   `json:"transport"`
-	CodingWorkflowEnabled   bool     `json:"coding_workflow_enabled"`
-	CodingIssuerID          string   `json:"coding_issuer_id,omitempty"`
-	CodingIssuerKeyID       string   `json:"coding_issuer_key_id,omitempty"`
-	CodingIssuerPublicKey   string   `json:"coding_issuer_public_key_base64,omitempty"`
-	CodingEvidenceSource    string   `json:"coding_evidence_source"`
-	PublicDeploymentNote    string   `json:"public_deployment_note"`
+	Version               string   `json:"version"`
+	ProviderMode          string   `json:"provider_mode"`
+	ProviderID            string   `json:"provider_id"`
+	Tools                 []string `json:"tools"`
+	DecisionBinding       string   `json:"decision_binding"`
+	SideEffectPolicy      string   `json:"side_effect_policy"`
+	CompletionPolicy      string   `json:"completion_policy"`
+	Transport             string   `json:"transport"`
+	CodingWorkflowEnabled bool     `json:"coding_workflow_enabled"`
+	CodingIssuerID        string   `json:"coding_issuer_id,omitempty"`
+	CodingIssuerKeyID     string   `json:"coding_issuer_key_id,omitempty"`
+	CodingIssuerPublicKey string   `json:"coding_issuer_public_key_base64,omitempty"`
+	CodingEvidenceSource  string   `json:"coding_evidence_source"`
+	PublicDeploymentNote  string   `json:"public_deployment_note"`
 }
 
 type CodingStartInput struct {
