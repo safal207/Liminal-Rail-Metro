@@ -1,0 +1,16 @@
+{
+  "protocol": "metro.coding.contract.v0.3",
+  "repository": "safal207/Liminal-Rail-Metro",
+  "issue_url": "https://github.com/safal207/Liminal-Rail-Metro/issues/14",
+  "action_id": "issue14-go-verification-001",
+  "base_sha": "3600fae8cf1f7bf1ae9ade429e154aab38ff0f2c",
+  "profile": "go-test-vet-v1",
+  "required_tests": [
+    {
+      "file": "internal/metro/route_binding_test.go",
+      "sha256": "2bb209ec189196ee4186bc6b0451f0165abbd58f56c2ec9d919f04600df9ff7a",
+      "package": "github.com/safal207/Liminal-Rail-Metro/internal/metro",
+      "name": "TestVerifyRejectsRouteActionMismatch"
+    }
+  ]
+}
