@@ -1,55 +1,59 @@
-# Liminal Rail Metro Codex plugin v0.1
+# Liminal Rail Metro Codex plugin v0.2
 
 Portable Codex/ChatGPT plugin package for the Liminal Rail Metro decision and
 proof boundary.
 
-The package now has two compatible surfaces:
+## Public MCP endpoint
 
-1. **MCP tools** — the preferred live plugin surface:
-   - `liminal_decide`
-   - `liminal_verify`
-   - `liminal_status`
-2. **`metro-codex` CLI** — the existing narrow local fallback/executor for
-   SHA-256 text proofs and approval-only external intents.
-
-The portable manifest is `plugin.json`; `.codex-plugin/plugin.json` remains a
-compatibility fallback.
-
-## Local MCP development
-
-From the trusted repository checkout:
-
-```bash
-go run ./cmd/codex-mcp
-```
-
-The checked-in `mcp.json` points to:
+The canonical plugin now points to the live HTTPS MCP service:
 
 ```text
-http://127.0.0.1:8787/mcp
+https://liminal-rail-codex-mcp-production.up.railway.app/mcp
 ```
 
-The MCP server defaults to deterministic local proof mode. A call to
-`liminal_decide` must supply bounded choices and a non-negative `scores` map.
-Those scores are proof input, not model confidence.
+Health endpoint:
 
-To use the existing v0.7 remote-provider boundary instead:
+```text
+https://liminal-rail-codex-mcp-production.up.railway.app/healthz
+```
+
+Externally verified on v0.2:
+
+- `GET /healthz` -> HTTP 200 with `{"status":"ok","version":"0.2.0"}`;
+- MCP `initialize` -> HTTP 200, `application/json`, server `liminal-rail-codex` version `0.2.0`.
+
+The current public surface is deliberately anonymous because it is stateless,
+does not read user-specific data, and does not execute external side effects.
+OAuth 2.1 is a required future boundary before user-specific or effectful tools
+are added.
+
+## Tools
+
+- `liminal_decide` — bounded decision + Metro policy gate.
+- `liminal_verify` — Packet + Route + Result + Receipt verification.
+- `liminal_status` — read-only runtime/boundary status.
+
+The server defaults to deterministic static-proof mode. A `liminal_decide`
+call must supply bounded choices and a non-negative `scores` map. These scores
+are deterministic proof input, not model confidence.
+
+A real remote provider can still be configured on the server through the
+existing v0.7 environment variables:
 
 ```bash
 export LIMINAL_REMOTE_PROVIDER_URL="https://provider.example/decision"
 export LIMINAL_REMOTE_PROVIDER_ID="provider-id"
 export LIMINAL_REMOTE_PROVIDER_TOKEN="..."
 export LIMINAL_REMOTE_TIMEOUT_MS="10000"
-go run ./cmd/codex-mcp
 ```
 
-The remote decision remains untrusted. Metro still revalidates:
+Remote decisions remain untrusted. Metro revalidates:
 
 ```text
 request_id + action_id + packet_hash + state_hash + choices_hash
 ```
 
-before applying the v0.6 confidence/margin/side-effect policy.
+before applying the v0.6 confidence, margin, and side-effect policy.
 
 ## Completion boundary
 
@@ -62,17 +66,28 @@ A route is not completion proof. `liminal_verify` accepts completion only when:
 
 `UNKNOWN` remains unverified.
 
+## Local development
+
+The public URL is checked into `mcp.json`. For local server development, run:
+
+```bash
+go run ./cmd/codex-mcp
+```
+
+The local server defaults to `127.0.0.1:8787`. Hosted deployments can bind to
+the platform port via `PORT`, or explicitly with `LIMINAL_LISTEN_ADDR`.
+
 ## CLI fallback
 
-The existing skill can still use the separately built `metro-codex` binary.
-That CLI executes only local SHA-256 for `hash_text`; `external_action` is
+The existing `metro-codex` binary remains the narrow local fallback. It
+executes only local SHA-256 for `hash_text`; `external_action` is
 approval-only and never executes an external effect.
 
 See [installation and contracts](../../docs/codex-adapter-v0.1.md).
 
-## Public distribution boundary
+## Claim ceiling
 
-The localhost MCP URL is deliberately for development. Public plugin submission
-requires a deployed HTTPS MCP endpoint and appropriate authentication. This
-v0.1 does not claim hosted availability, TypeSafe/Jev API compatibility,
-autonomous execution, or exactly-once external effects.
+v0.2 proves a live HTTPS MCP endpoint and portable plugin package. It does not
+claim TypeSafe/Jev API compatibility, user-account access, autonomous external
+execution, exactly-once distributed effects, or completion without a verified
+receipt.
