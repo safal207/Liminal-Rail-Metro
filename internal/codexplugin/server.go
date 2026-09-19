@@ -68,10 +68,10 @@ type DecideOutput struct {
 }
 
 type VerifyInput struct {
-	Packet  metro.Packet    `json:"packet" jsonschema:"original Metro packet"`
-	Route   metro.Route     `json:"route" jsonschema:"route used for execution"`
-	Result  map[string]any  `json:"result" jsonschema:"claimed execution result"`
-	Receipt metro.Receipt   `json:"receipt" jsonschema:"execution receipt to verify"`
+	Packet  metro.Packet   `json:"packet" jsonschema:"original Metro packet"`
+	Route   metro.Route    `json:"route" jsonschema:"route used for execution"`
+	Result  map[string]any `json:"result" jsonschema:"claimed execution result"`
+	Receipt metro.Receipt  `json:"receipt" jsonschema:"execution receipt to verify"`
 }
 
 type VerifyOutput struct {
