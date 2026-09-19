@@ -67,7 +67,7 @@ func TestStaticDecideSideEffectRequiresApproval(t *testing.T) {
 		},
 		Scores: map[string]float64{
 			"deploy": 99,
-			"qa":      1,
+			"qa":     1,
 		},
 	})
 	if err != nil {
