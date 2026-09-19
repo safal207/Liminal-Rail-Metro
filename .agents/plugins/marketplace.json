@@ -5,10 +5,10 @@
   },
   "plugins": [
     {
-      "name": "liminal-rail",
+      "name": "liminal-rail-metro",
       "source": {
         "source": "local",
-        "path": "./plugins/liminal-rail"
+        "path": "./plugins/liminal-rail-metro"
       },
       "policy": {
         "installation": "AVAILABLE",
