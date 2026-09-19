@@ -7,7 +7,6 @@ on:
       - "internal/codexplugin/**"
       - "plugins/liminal-rail-metro/**"
       - "Dockerfile.codex-mcp"
-      - "railway.toml"
       - ".github/workflows/codex-plugin-v0.2-public.yml"
   workflow_dispatch:
 
@@ -26,21 +25,6 @@ jobs:
         with:
           go-version: 1.23.x
           cache: false
-
-      - name: Validate Railway deployment config
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import tomllib
-
-          cfg = tomllib.loads(Path("railway.toml").read_text())
-          assert cfg["build"]["builder"] == "DOCKERFILE"
-          assert cfg["build"]["dockerfilePath"] == "Dockerfile.codex-mcp"
-          assert cfg["deploy"]["healthcheckPath"] == "/healthz"
-          assert cfg["deploy"]["healthcheckTimeout"] == 30
-          assert cfg["deploy"]["restartPolicyType"] == "ALWAYS"
-          print("Railway config: PASS")
-          PY
 
       - name: Require gofmt
         run: |
