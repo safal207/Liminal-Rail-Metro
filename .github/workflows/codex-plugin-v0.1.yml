@@ -1,0 +1,89 @@
+name: Codex Plugin v0.1
+
+on:
+  pull_request:
+    paths:
+      - "cmd/codex-mcp/**"
+      - "internal/codexplugin/**"
+      - "plugins/liminal-rail/**"
+      - ".agents/plugins/marketplace.json"
+      - ".codex/config.toml"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/codex-plugin-v0.1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  codex-plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go 1.23
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.23.x
+          cache: false
+
+      - name: Validate portable plugin files
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("plugins/liminal-rail")
+          plugin = json.loads((root / "plugin.json").read_text())
+          mcp = json.loads((root / "mcp.json").read_text())
+          market = json.loads(Path(".agents/plugins/marketplace.json").read_text())
+
+          assert plugin["$schema"] == "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
+          assert plugin["name"] == "liminal-rail"
+          assert plugin["version"] == "0.1.0"
+          assert (root / "skills/route-action/SKILL.md").is_file()
+          assert (root / "skills/verify-proof/SKILL.md").is_file()
+
+          server = mcp["mcpServers"]["liminal_rail"]
+          assert mcp["$schema"] == "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"
+          assert server["type"] == "streamable-http"
+          assert server["url"] == "http://127.0.0.1:8787/mcp"
+
+          entry = market["plugins"][0]
+          assert entry["name"] == "liminal-rail"
+          assert entry["source"]["path"] == "./plugins/liminal-rail"
+          print("portable plugin structure: PASS")
+          PY
+
+      - name: Resolve Go modules
+        run: go mod tidy
+
+      - name: Require gofmt
+        run: |
+          unformatted="$(gofmt -l ./cmd/codex-mcp ./internal/codexplugin)"
+          if [ -n "$unformatted" ]; then
+            echo "Go files require gofmt:" >&2
+            echo "$unformatted" >&2
+            gofmt -d $unformatted
+            exit 1
+          fi
+
+      - name: Go unit and MCP round-trip tests
+        run: go test ./...
+
+      - name: Go race detector
+        run: go test -race ./internal/codexplugin ./internal/decisionplane ./internal/lifetrastation
+
+      - name: Build MCP server
+        run: go build ./cmd/codex-mcp
+
+      - name: Upload resolved module files
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-plugin-v0.1-modules
+          path: |
+            go.mod
+            go.sum
+          if-no-files-found: error
