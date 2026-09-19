@@ -330,7 +330,9 @@ func deterministicKey(label string) ed25519.PrivateKey {
 
 func readJSON(path string, dst any) error {
 	b, err := os.ReadFile(path)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	return json.Unmarshal(b, dst)
 }
 
@@ -343,40 +345,58 @@ func fileSHA256(path string) string {
 
 func appendLearning(path string, value any) error {
 	b, err := json.Marshal(value)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer f.Close()
-	if _, err := f.Write(append(b, '\n')); err != nil { return err }
+	if _, err := f.Write(append(b, '\n')); err != nil {
+		return err
+	}
 	return f.Sync()
 }
 
 func nonEmptyLines(path string) int {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) { return 0 }
+		if errors.Is(err, os.ErrNotExist) {
+			return 0
+		}
 		panic(err)
 	}
 	count, inLine := 0, false
 	for _, c := range b {
 		if c == '\n' {
-			if inLine { count++ }
+			if inLine {
+				count++
+			}
 			inLine = false
 			continue
 		}
-		if c != ' ' && c != '\t' && c != '\r' { inLine = true }
+		if c != ' ' && c != '\t' && c != '\r' {
+			inLine = true
+		}
 	}
-	if inLine { count++ }
+	if inLine {
+		count++
+	}
 	return count
 }
 
 func contains(refs []string, want string) bool {
 	for _, ref := range refs {
-		if ref == want { return true }
+		if ref == want {
+			return true
+		}
 	}
 	return false
 }
 
 func must(err error) {
-	if err != nil { panic(err) }
+	if err != nil {
+		panic(err)
+	}
 }
