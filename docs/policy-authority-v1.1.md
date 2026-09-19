@@ -96,9 +96,9 @@ Deleting or tampering with the local head file is outside this proof's tamper-re
 
 ## Bound dispatch
 
-`PolicyAuthorityGate` stores an immutable copy of the concrete action and its verified operation descriptor. Execution goes through an `OperationDispatcher` that receives only that bound operation. The caller cannot replace the action descriptor between authorization and dispatch.
+`PolicyAuthorityRuntime` owns the trusted handlers registered during runtime setup. `PolicyAuthorityGate` stores an immutable copy of the concrete action and its verified operation descriptor, and `gate.Execute()` accepts **no call-time callback or dispatcher**. It selects the pre-registered handler only from the bound action kind, target, and side-effect flag, then passes that handler the exact bound operation.
 
-The dispatcher/executor remains a trusted execution boundary: this bead proves descriptor-to-policy binding, not semantic verification that a compromised executor physically performed only the intended effect.
+The handler/executor remains a trusted execution boundary: this bead proves that the caller cannot swap in an arbitrary execution callback after authorization and that the trusted handler receives the exact descriptor. It does not semantically verify that a compromised trusted handler physically performed only the intended effect.
 
 ## Rotation and weakening semantics
 
@@ -151,7 +151,7 @@ It must demonstrate:
 - a hardware-critical action falsely declared as `bounded.cpu.sha256` is rejected before dispatch/learning;
 - a weaker policy substituted for the correctly derived hardware class is rejected;
 - the exact hardware policy independently DENYs the same software-bound evidence;
-- the allowed dispatcher receives the exact authority-bound descriptor;
+- the caller cannot supply an execution callback at `Execute()` time and the pre-registered trusted runtime handler receives the exact authority-bound descriptor;
 - restart preserves the accepted chain head and authorization;
 - reopening the older still-valid root-only chain after accepting generation 2 fails closed;
 - a same-generation fork fails closed in unit tests;
