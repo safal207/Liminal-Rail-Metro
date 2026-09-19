@@ -24,7 +24,7 @@ type Config struct {
 	RemoteBearerToken      string
 	RemoteTimeout          time.Duration
 	RemoteMaxResponseBytes int64
-	GitHubClient           *codingworkflow.GitHubClient
+	GitHubClient           codingworkflow.GitHubEvidenceReader
 	CodingSigner           *codingworkflow.Signer
 }
 
@@ -32,7 +32,7 @@ type Runtime struct {
 	provider     decisionplane.Provider
 	providerMode string
 	providerID   string
-	github       *codingworkflow.GitHubClient
+	github       codingworkflow.GitHubEvidenceReader
 	codingSigner *codingworkflow.Signer
 }
 
