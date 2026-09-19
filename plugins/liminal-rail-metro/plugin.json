@@ -1,0 +1,39 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "liminal-rail-metro",
+  "version": "0.1.0",
+  "description": "Bounded Codex actions, Metro decisions, and verifiable execution receipts.",
+  "author": {
+    "name": "safal207"
+  },
+  "repository": "https://github.com/safal207/Liminal-Rail-Metro",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "agents",
+    "routing",
+    "reliability",
+    "proof",
+    "mcp"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Liminal Rail Metro",
+        "shortDescription": "Route bounded Codex actions and verify completion",
+        "longDescription": "Use Liminal Rail Metro to make bounded routing decisions, enforce side-effect approval, and verify execution receipts before claiming completion.",
+        "developerName": "safal207",
+        "category": "Productivity",
+        "capabilities": [
+          "Read",
+          "Write"
+        ],
+        "websiteURL": "https://github.com/safal207/Liminal-Rail-Metro",
+        "defaultPrompt": [
+          "Use Liminal Rail Metro to route this bounded coding action and verify completion.",
+          "Use Liminal Rail Metro before claiming this issue is fixed."
+        ]
+      }
+    }
+  }
+}
