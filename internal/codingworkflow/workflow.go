@@ -30,72 +30,8 @@ const (
 
 var (
 	repositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
-	shaPattern        = regexp.MustCompile(`^[0-9a-f]{40}package codingworkflow
-
-import (
-	"context"
-	"crypto/ed25519"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"path"
-	"regexp"
-	"sort"
-	"strings"
-	"time"
-
-	"github.com/safal207/Liminal-Rail-Metro/internal/decisionplane"
-	"github.com/safal207/Liminal-Rail-Metro/internal/metro"
-)
-
-const (
-	ContractProtocol = "liminal.codex.coding.contract.v0.3"
-	ReceiptProtocol  = "liminal.codex.coding.receipt.v0.3"
-	SignatureEd25519 = "ed25519"
-
-	StatusVerified = "VERIFIED"
-	StatusHold     = "HOLD"
-)
-
-var (
-	repositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
-)
-	sha256Pattern     = regexp.MustCompile(`^[0-9a-f]{64}package codingworkflow
-
-import (
-	"context"
-	"crypto/ed25519"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"path"
-	"regexp"
-	"sort"
-	"strings"
-	"time"
-
-	"github.com/safal207/Liminal-Rail-Metro/internal/decisionplane"
-	"github.com/safal207/Liminal-Rail-Metro/internal/metro"
-)
-
-const (
-	ContractProtocol = "liminal.codex.coding.contract.v0.3"
-	ReceiptProtocol  = "liminal.codex.coding.receipt.v0.3"
-	SignatureEd25519 = "ed25519"
-
-	StatusVerified = "VERIFIED"
-	StatusHold     = "HOLD"
-)
-
-var (
-	repositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
-)
+	shaPattern        = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	sha256Pattern     = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
 type Signer struct {
@@ -573,7 +509,6 @@ func (signer *Signer) VerifyReceipt(receipt Receipt) error {
 	}
 	return nil
 }
-
 func (signer *Signer) signContract(contract *Contract) error {
 	contract.IssuerID = signer.issuerID
 	contract.IssuerKeyID = signer.keyID
