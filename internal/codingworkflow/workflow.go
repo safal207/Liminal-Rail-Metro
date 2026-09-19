@@ -29,37 +29,7 @@ const (
 )
 
 var (
-	repositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+package codingworkflow
-
-import (
-	"context"
-	"crypto/ed25519"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"path"
-	"regexp"
-	"sort"
-	"strings"
-	"time"
-
-	"github.com/safal207/Liminal-Rail-Metro/internal/decisionplane"
-	"github.com/safal207/Liminal-Rail-Metro/internal/metro"
-)
-
-const (
-	ContractProtocol = "liminal.codex.coding.contract.v0.3"
-	ReceiptProtocol  = "liminal.codex.coding.receipt.v0.3"
-	SignatureEd25519 = "ed25519"
-
-	StatusVerified = "VERIFIED"
-	StatusHold     = "HOLD"
-)
-
-)
+	repositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 	shaPattern        = regexp.MustCompile(`^[0-9a-f]{40}package codingworkflow
 
 import (
@@ -90,6 +60,8 @@ const (
 	StatusHold     = "HOLD"
 )
 
+var (
+	repositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 )
 	sha256Pattern     = regexp.MustCompile(`^[0-9a-f]{64}package codingworkflow
 
@@ -121,6 +93,8 @@ const (
 	StatusHold     = "HOLD"
 )
 
+var (
+	repositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 )
 )
 
@@ -150,50 +124,50 @@ type StartInput struct {
 }
 
 type Contract struct {
-	Protocol            string                   `json:"protocol"`
-	WorkflowID          string                   `json:"workflow_id"`
-	Repository          string                   `json:"repository"`
-	IssueNumber         int                      `json:"issue_number"`
-	IssueURL            string                   `json:"issue_url"`
-	IssueTitle          string                   `json:"issue_title"`
-	IssueSnapshotHash   string                   `json:"issue_snapshot_hash"`
-	BaseSHA             string                   `json:"base_sha"`
-	AllowedPathPrefixes []string                 `json:"allowed_path_prefixes"`
-	RequiredChecks      []string                 `json:"required_checks"`
-	Packet              metro.Packet             `json:"packet"`
-	Request             decisionplane.Request    `json:"decision_request"`
-	Decision            decisionplane.Decision   `json:"decision"`
-	Gate                decisionplane.GateResult `json:"gate"`
-	CreatedAt           string                   `json:"created_at"`
-	IssuerID            string                   `json:"issuer_id"`
-	IssuerKeyID         string                   `json:"issuer_key_id"`
-	IssuerPublicKey     string                   `json:"issuer_public_key_base64"`
-	SignatureAlgorithm  string                   `json:"signature_algorithm"`
-	ContractHash        string                   `json:"contract_hash"`
-	Signature           string                   `json:"signature_base64"`
+	Protocol            string                    `json:"protocol"`
+	WorkflowID          string                    `json:"workflow_id"`
+	Repository          string                    `json:"repository"`
+	IssueNumber         int                       `json:"issue_number"`
+	IssueURL            string                    `json:"issue_url"`
+	IssueTitle          string                    `json:"issue_title"`
+	IssueSnapshotHash   string                    `json:"issue_snapshot_hash"`
+	BaseSHA             string                    `json:"base_sha"`
+	AllowedPathPrefixes []string                  `json:"allowed_path_prefixes"`
+	RequiredChecks      []string                  `json:"required_checks"`
+	Packet              metro.Packet              `json:"packet"`
+	Request             decisionplane.Request     `json:"decision_request"`
+	Decision            decisionplane.Decision    `json:"decision"`
+	Gate                decisionplane.GateResult  `json:"gate"`
+	CreatedAt           string                    `json:"created_at"`
+	IssuerID            string                    `json:"issuer_id"`
+	IssuerKeyID         string                    `json:"issuer_key_id"`
+	IssuerPublicKey     string                    `json:"issuer_public_key_base64"`
+	SignatureAlgorithm  string                    `json:"signature_algorithm"`
+	ContractHash        string                    `json:"contract_hash"`
+	Signature           string                    `json:"signature_base64"`
 }
 
 type Receipt struct {
-	Protocol           string   `json:"protocol"`
-	WorkflowID         string   `json:"workflow_id"`
-	ContractHash       string   `json:"contract_hash"`
-	Repository         string   `json:"repository"`
-	IssueNumber        int      `json:"issue_number"`
-	PullRequestNumber  int      `json:"pull_request_number"`
-	PullRequestURL     string   `json:"pull_request_url"`
-	BaseSHA            string   `json:"base_sha"`
-	HeadSHA            string   `json:"head_sha"`
-	FilesHash          string   `json:"files_hash"`
-	ChecksHash         string   `json:"checks_hash"`
-	RequiredChecks     []string `json:"required_checks"`
-	Status             string   `json:"status"`
-	VerifiedAt         string   `json:"verified_at"`
-	IssuerID           string   `json:"issuer_id"`
-	IssuerKeyID        string   `json:"issuer_key_id"`
-	IssuerPublicKey    string   `json:"issuer_public_key_base64"`
-	SignatureAlgorithm string   `json:"signature_algorithm"`
-	ReceiptHash        string   `json:"receipt_hash"`
-	Signature          string   `json:"signature_base64"`
+	Protocol           string           `json:"protocol"`
+	WorkflowID         string           `json:"workflow_id"`
+	ContractHash       string           `json:"contract_hash"`
+	Repository         string           `json:"repository"`
+	IssueNumber        int              `json:"issue_number"`
+	PullRequestNumber  int              `json:"pull_request_number"`
+	PullRequestURL     string           `json:"pull_request_url"`
+	BaseSHA            string           `json:"base_sha"`
+	HeadSHA            string           `json:"head_sha"`
+	FilesHash          string           `json:"files_hash"`
+	ChecksHash         string           `json:"checks_hash"`
+	RequiredChecks     []string         `json:"required_checks"`
+	Status             string           `json:"status"`
+	VerifiedAt         string           `json:"verified_at"`
+	IssuerID           string           `json:"issuer_id"`
+	IssuerKeyID        string           `json:"issuer_key_id"`
+	IssuerPublicKey    string           `json:"issuer_public_key_base64"`
+	SignatureAlgorithm string           `json:"signature_algorithm"`
+	ReceiptHash        string           `json:"receipt_hash"`
+	Signature          string           `json:"signature_base64"`
 }
 
 type Verification struct {
@@ -810,7 +784,6 @@ func validateContractShape(contract Contract) error {
 	}
 	return nil
 }
-
 func pathAllowed(filename string, prefixes []string) bool {
 	clean := path.Clean(filename)
 	if clean == "." || strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, "/") {
