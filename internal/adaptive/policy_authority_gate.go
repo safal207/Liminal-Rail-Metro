@@ -1,53 +1,135 @@
 package adaptive
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 
+	"github.com/safal207/Liminal-Rail-Metro/internal/metro"
 	"github.com/safal207/Liminal-Rail-Metro/internal/policyauthority"
 	"github.com/safal207/Liminal-Rail-Metro/internal/trustpolicy"
 )
 
-var ErrPolicyAuthorityMismatch = errors.New("requested trust policy does not match signed policy authority")
+var (
+	ErrPolicyAuthorityMismatch = errors.New("requested trust policy does not match signed policy authority")
+	ErrOperationClassMismatch  = errors.New("declared operation class does not match signed execution binding")
+)
+
+type OperationRequest struct {
+	DeclaredClass string
+	Action        metro.Action
+	Target        string
+	SideEffect    bool
+}
+
+type BoundOperation struct {
+	OperationClass string
+	Action         metro.Action
+	Target         string
+	SideEffect     bool
+	Descriptor     policyauthority.OperationDescriptor
+}
+
+func (o BoundOperation) Validate() error {
+	if o.OperationClass == "" || o.OperationClass != o.Descriptor.OperationClass {
+		return errors.New("bound operation class mismatch")
+	}
+	return policyauthority.VerifyOperationDescriptor(o.Descriptor, o.Action.Kind, o.Action.Inputs, o.Target, o.SideEffect)
+}
+
+type OperationDispatcher interface {
+	Dispatch(BoundOperation) error
+}
+
+type OperationLearner interface {
+	Learn(BoundOperation) error
+}
+
+type DispatchFunc func(BoundOperation) error
+
+func (f DispatchFunc) Dispatch(op BoundOperation) error { return f(op) }
+
+type LearnFunc func(BoundOperation) error
+
+func (f LearnFunc) Learn(op BoundOperation) error { return f(op) }
 
 type PolicyAuthorityGate struct {
 	trust         TrustGate
+	resolver      *policyauthority.Resolver
 	authorization policyauthority.Authorization
+	operation     BoundOperation
 }
 
-func NewPolicyAuthorityGate(resolver *policyauthority.Resolver, operationClass string, evidence trustpolicy.Evidence) (PolicyAuthorityGate, error) {
-	policy, authorization, err := resolver.Resolve(operationClass)
+func NewPolicyAuthorityGate(resolver *policyauthority.Resolver, request OperationRequest, evidence trustpolicy.Evidence) (PolicyAuthorityGate, error) {
+	return newPolicyAuthorityGate(resolver, request, nil, evidence)
+}
+
+func NewPolicyAuthorityGateWithRequestedPolicy(resolver *policyauthority.Resolver, request OperationRequest, requested trustpolicy.Policy, evidence trustpolicy.Evidence) (PolicyAuthorityGate, error) {
+	return newPolicyAuthorityGate(resolver, request, &requested, evidence)
+}
+
+func newPolicyAuthorityGate(resolver *policyauthority.Resolver, request OperationRequest, requested *trustpolicy.Policy, evidence trustpolicy.Evidence) (PolicyAuthorityGate, error) {
+	if resolver == nil {
+		return PolicyAuthorityGate{}, errors.New("policy authority resolver is required")
+	}
+	policy, descriptor, authorization, err := resolver.ResolveOperation(request.Action.Kind, request.Action.Inputs, request.Target, request.SideEffect)
 	if err != nil {
+		return PolicyAuthorityGate{}, err
+	}
+	if request.DeclaredClass != "" && request.DeclaredClass != descriptor.OperationClass {
+		return PolicyAuthorityGate{}, fmt.Errorf("%w: declared=%s signed=%s", ErrOperationClassMismatch, request.DeclaredClass, descriptor.OperationClass)
+	}
+	if requested != nil {
+		if err := policyauthority.VerifyRequestedPolicy(authorization, *requested); err != nil {
+			return PolicyAuthorityGate{}, fmt.Errorf("%w: %v", ErrPolicyAuthorityMismatch, err)
+		}
+		if requested.PolicyHash != policy.PolicyHash {
+			return PolicyAuthorityGate{}, fmt.Errorf("%w: resolved policy hash mismatch", ErrPolicyAuthorityMismatch)
+		}
+	}
+	action, err := cloneAction(request.Action)
+	if err != nil {
+		return PolicyAuthorityGate{}, err
+	}
+	op := BoundOperation{
+		OperationClass: descriptor.OperationClass, Action: action, Target: request.Target,
+		SideEffect: request.SideEffect, Descriptor: descriptor,
+	}
+	if err := op.Validate(); err != nil {
 		return PolicyAuthorityGate{}, err
 	}
 	trust, err := NewTrustGate(policy, evidence)
 	if err != nil {
 		return PolicyAuthorityGate{}, err
 	}
-	return PolicyAuthorityGate{trust: trust, authorization: authorization}, nil
+	return PolicyAuthorityGate{trust: trust, resolver: resolver, authorization: authorization, operation: op}, nil
 }
 
-func NewPolicyAuthorityGateWithRequestedPolicy(resolver *policyauthority.Resolver, operationClass string, requested trustpolicy.Policy, evidence trustpolicy.Evidence) (PolicyAuthorityGate, error) {
-	policy, authorization, err := resolver.Resolve(operationClass)
+func cloneAction(action metro.Action) (metro.Action, error) {
+	b, err := json.Marshal(action)
 	if err != nil {
-		return PolicyAuthorityGate{}, err
+		return metro.Action{}, err
 	}
-	if err := policyauthority.VerifyRequestedPolicy(authorization, requested); err != nil {
-		return PolicyAuthorityGate{}, fmt.Errorf("%w: %v", ErrPolicyAuthorityMismatch, err)
+	var out metro.Action
+	if err := json.Unmarshal(b, &out); err != nil {
+		return metro.Action{}, err
 	}
-	if requested.PolicyHash != policy.PolicyHash {
-		return PolicyAuthorityGate{}, fmt.Errorf("%w: resolved policy hash mismatch", ErrPolicyAuthorityMismatch)
-	}
-	trust, err := NewTrustGate(policy, evidence)
-	if err != nil {
-		return PolicyAuthorityGate{}, err
-	}
-	return PolicyAuthorityGate{trust: trust, authorization: authorization}, nil
+	return out, nil
 }
 
 func (g PolicyAuthorityGate) Authorization() policyauthority.Authorization { return g.authorization }
 func (g PolicyAuthorityGate) Policy() trustpolicy.Policy                   { return g.trust.Policy() }
 func (g PolicyAuthorityGate) Evidence() trustpolicy.Evidence               { return g.trust.Evidence() }
+
+func (g PolicyAuthorityGate) Operation() (BoundOperation, error) {
+	action, err := cloneAction(g.operation.Action)
+	if err != nil {
+		return BoundOperation{}, err
+	}
+	op := g.operation
+	op.Action = action
+	return op, op.Validate()
+}
 
 func (g PolicyAuthorityGate) Decision() (trustpolicy.Decision, error) {
 	return g.trust.Decision()
@@ -57,70 +139,121 @@ func (g PolicyAuthorityGate) RequireAllowed() (trustpolicy.Decision, error) {
 	return g.trust.RequireAllowed()
 }
 
-func (g PolicyAuthorityGate) Execute(effect func() error) (trustpolicy.Decision, error) {
-	return g.trust.Execute(effect)
+func (g PolicyAuthorityGate) Execute(dispatcher OperationDispatcher) (trustpolicy.Decision, error) {
+	d, err := g.RequireAllowed()
+	if err != nil {
+		return d, err
+	}
+	if dispatcher == nil {
+		return d, errors.New("bound operation dispatcher is required")
+	}
+	op, err := g.Operation()
+	if err != nil {
+		return d, err
+	}
+	if err := dispatcher.Dispatch(op); err != nil {
+		return d, err
+	}
+	return d, nil
 }
 
-func (g PolicyAuthorityGate) Learn(learn func() error) (trustpolicy.Decision, error) {
-	return g.trust.Learn(learn)
+func (g PolicyAuthorityGate) Learn(learner OperationLearner) (trustpolicy.Decision, error) {
+	d, err := g.RequireAllowed()
+	if err != nil {
+		return d, err
+	}
+	if learner == nil {
+		return d, errors.New("bound operation learner is required")
+	}
+	op, err := g.Operation()
+	if err != nil {
+		return d, err
+	}
+	if err := learner.Learn(op); err != nil {
+		return d, err
+	}
+	return d, nil
 }
 
-func BindPolicyAuthorityDecisionResult(result map[string]any, authorization policyauthority.Authorization, decision trustpolicy.Decision) (map[string]any, error) {
-	if err := authorization.Validate(); err != nil {
+func (g PolicyAuthorityGate) BindDecisionResult(result map[string]any, decision trustpolicy.Decision) (map[string]any, error) {
+	if err := g.resolver.VerifyAuthorization(g.authorization); err != nil {
+		return nil, err
+	}
+	if err := g.operation.Validate(); err != nil {
 		return nil, err
 	}
 	if err := decision.Validate(); err != nil {
 		return nil, err
 	}
-	if authorization.PolicyHash != decision.PolicyHash {
+	if g.authorization.PolicyHash != decision.PolicyHash {
 		return nil, errors.New("policy authority authorization is not bound to trust decision policy")
 	}
 	bound, err := BindTrustDecisionResult(result, decision)
 	if err != nil {
 		return nil, err
 	}
-	bound["policy_authority_protocol"] = authorization.Protocol
-	bound["policy_authority_id"] = authorization.AuthorityID
-	bound["policy_authority_generation"] = authorization.Generation
-	bound["policy_operation_class"] = authorization.OperationClass
-	bound["policy_authority_policy_hash"] = authorization.PolicyHash
-	bound["policy_manifest_hash"] = authorization.ManifestHash
-	bound["policy_signed_manifest_hash"] = authorization.SignedManifestHash
-	bound["policy_authority_issuer_key_id"] = authorization.IssuerKeyID
-	bound["policy_authority_rotation_hash"] = authorization.RotationHash
-	bound["policy_authorization_hash"] = authorization.AuthorizationHash
+	a := g.authorization
+	bound["policy_authority_protocol"] = a.Protocol
+	bound["policy_authority_id"] = a.AuthorityID
+	bound["policy_authority_generation"] = a.Generation
+	bound["policy_operation_class"] = a.OperationClass
+	bound["policy_action_kind"] = a.ActionKind
+	bound["policy_target"] = a.Target
+	bound["policy_side_effect"] = a.SideEffect
+	bound["policy_input_hash"] = a.InputHash
+	bound["policy_operation_descriptor_hash"] = a.OperationDescriptorHash
+	bound["policy_authority_policy_hash"] = a.PolicyHash
+	bound["policy_manifest_hash"] = a.ManifestHash
+	bound["policy_signed_manifest_hash"] = a.SignedManifestHash
+	bound["policy_authority_issuer_key_id"] = a.IssuerKeyID
+	bound["policy_authority_rotation_hash"] = a.RotationHash
+	bound["policy_authority_chain_head_hash"] = a.ChainHeadHash
+	bound["policy_authorization_hash"] = a.AuthorizationHash
 	return bound, nil
 }
 
-func ValidatePolicyAuthorityDecisionResultBinding(result map[string]any, authorization policyauthority.Authorization, decision trustpolicy.Decision) error {
-	if err := authorization.Validate(); err != nil {
+func (g PolicyAuthorityGate) ValidateDecisionResultBinding(result map[string]any, decision trustpolicy.Decision) error {
+	if err := g.resolver.VerifyAuthorization(g.authorization); err != nil {
+		return err
+	}
+	if err := g.operation.Validate(); err != nil {
 		return err
 	}
 	if err := ValidateTrustDecisionResultBinding(result, decision); err != nil {
 		return err
 	}
-	if authorization.PolicyHash != decision.PolicyHash {
+	a := g.authorization
+	if a.PolicyHash != decision.PolicyHash {
 		return errors.New("policy authority authorization is not bound to trust decision policy")
 	}
-	if valueString(result, "policy_authority_protocol") != authorization.Protocol ||
-		valueString(result, "policy_authority_id") != authorization.AuthorityID ||
-		valueString(result, "policy_operation_class") != authorization.OperationClass ||
-		valueString(result, "policy_authority_policy_hash") != authorization.PolicyHash ||
-		valueString(result, "policy_manifest_hash") != authorization.ManifestHash ||
-		valueString(result, "policy_signed_manifest_hash") != authorization.SignedManifestHash ||
-		valueString(result, "policy_authority_issuer_key_id") != authorization.IssuerKeyID ||
-		valueString(result, "policy_authority_rotation_hash") != authorization.RotationHash ||
-		valueString(result, "policy_authorization_hash") != authorization.AuthorizationHash {
+	if valueString(result, "policy_authority_protocol") != a.Protocol ||
+		valueString(result, "policy_authority_id") != a.AuthorityID ||
+		valueString(result, "policy_operation_class") != a.OperationClass ||
+		valueString(result, "policy_action_kind") != a.ActionKind ||
+		valueString(result, "policy_target") != a.Target ||
+		valueString(result, "policy_input_hash") != a.InputHash ||
+		valueString(result, "policy_operation_descriptor_hash") != a.OperationDescriptorHash ||
+		valueString(result, "policy_authority_policy_hash") != a.PolicyHash ||
+		valueString(result, "policy_manifest_hash") != a.ManifestHash ||
+		valueString(result, "policy_signed_manifest_hash") != a.SignedManifestHash ||
+		valueString(result, "policy_authority_issuer_key_id") != a.IssuerKeyID ||
+		valueString(result, "policy_authority_rotation_hash") != a.RotationHash ||
+		valueString(result, "policy_authority_chain_head_hash") != a.ChainHeadHash ||
+		valueString(result, "policy_authorization_hash") != a.AuthorizationHash {
 		return errors.New("measured result is not bound to signed policy authority")
+	}
+	sideEffect, ok := result["policy_side_effect"].(bool)
+	if !ok || sideEffect != a.SideEffect {
+		return errors.New("measured result policy side-effect flag mismatch")
 	}
 	generation, ok := result["policy_authority_generation"].(uint64)
 	if !ok {
-		if f, floatOK := result["policy_authority_generation"].(float64); floatOK && f >= 0 && uint64(f) == authorization.Generation {
+		if f, floatOK := result["policy_authority_generation"].(float64); floatOK && f >= 0 && uint64(f) == a.Generation {
 			return nil
 		}
 		return errors.New("measured result policy authority generation mismatch")
 	}
-	if generation != authorization.Generation {
+	if generation != a.Generation {
 		return errors.New("measured result policy authority generation mismatch")
 	}
 	return nil

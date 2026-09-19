@@ -1,37 +1,59 @@
 ---
 name: metro-action
-description: Run a bounded Liminal Rail Metro action through the metro-codex CLI and verify its receipt. Use for an explicitly requested Metro action, local text SHA-256 proof, or external-action approval-boundary check.
+description: Route a bounded Codex action through Liminal Rail Metro and verify its completion proof. Prefer the plugin MCP tools when connected; use the trusted metro-codex CLI as a bounded local fallback.
 ---
 
 # Bounded Metro action
 
-Use the installed `metro-codex` binary, built from the user's trusted
-`safal207/Liminal-Rail-Metro` checkout. If it is unavailable, explain that it must
-be built with `go install ./cmd/metro-codex` in that checkout and made available on
-PATH. Do not fetch or run an arbitrary binary to satisfy this prerequisite.
+Prefer the installed Liminal Rail MCP tools when available:
 
-1. Build one JSON input file with a JSON serializer/file editing tool. Keep user
-   text inside JSON data; never interpolate it into shell command text. Assign
-   stable `action_id` and `request_id` values before calling the CLI.
-2. Invoke `metro-codex run` with that file on stdin, saving stdout as the response.
-   POSIX: `metro-codex run < action.json > response.json`.
-   PowerShell: `Get-Content -Raw -Encoding utf8 action.json | metro-codex run |
-   Set-Content -Encoding utf8 response.json` (PowerShell 7; set
-   `$OutputEncoding = [System.Text.UTF8Encoding]::new($false)` first).
-   Use paths appropriate to the workspace and inspect the process exit code.
-3. On nonzero exit, report rejection. Empty/partial output is not proof. Do not
-   retry an external action or change its identity to bypass a failure.
-4. Run `metro-codex verify` on the saved response. Report the disposition, target
-   when present, and verification result. A digest verifies local consistency;
-   it is not a signature or an authoritative external receipt.
-5. `REQUIRE_APPROVAL` and `ESCALATE_SYSTEM2` have no dispatch or success receipt.
-   Stop the Metro workflow and explain what is required. v0.1 has no approval
-   resumption or external executor. Never invent an `approved` flag, relabel an
-   external action as safe, or execute it through another tool as part of this
-   skill. Any separate user-authorized workflow remains governed by that tool's
-   own approvals and permissions.
+- `liminal_decide` — create a bounded decision and policy gate.
+- `liminal_verify` — verify Packet + Route + Result + Receipt before claiming completion.
+- `liminal_status` — inspect the plugin boundary and provider mode.
 
-Example local action (UTF-8 text, not file paths):
+## MCP workflow
+
+1. Assign one stable `action_id` before dispatch and one stable `request_id` for the decision attempt.
+2. Keep the goal, inputs, state, and choices bounded. Never add a target after the decision request has been created.
+3. Set `side_effect=true` for external, irreversible, deployment, payment, account, production, or other effectful work.
+4. Call `liminal_decide`.
+5. Interpret the disposition strictly:
+   - `AUTO_ROUTE`: only the returned target may be used.
+   - `ESCALATE_SYSTEM2`: do more reasoning; the previous choice is not authority.
+   - `REQUIRE_APPROVAL`: do not perform the side effect without explicit approval.
+6. A route is not execution proof.
+7. After execution, collect the original Packet, Route, claimed Result, and Receipt and call `liminal_verify`.
+8. Claim completion only when `verified=true`.
+9. Preserve `UNKNOWN` as unverified. Never silently redispatch a possibly-effectful action.
+
+In the default local proof mode, `liminal_decide` requires non-negative `scores`
+for every bounded choice. Those scores are deterministic proof input, not model
+confidence. When the server is configured with the v0.7 remote provider, the
+remote provider supplies the probabilistic decision but remains untrusted; Metro
+still validates packet/state/choices binding and policy before a route exists.
+
+## CLI fallback
+
+If the MCP tools are unavailable, the existing trusted `metro-codex` binary may
+be used for its deliberately narrow local adapter. Build it only from the user's
+trusted `safal207/Liminal-Rail-Metro` checkout with:
+
+```bash
+go install ./cmd/metro-codex
+```
+
+Do not fetch or run an arbitrary binary to satisfy this prerequisite.
+
+The CLI v0.1 supports only:
+
+- `hash_text` — pure local SHA-256 of supplied UTF-8 text.
+- `external_action` — approval-boundary evaluation only; it never executes the external effect.
+
+Run a serialized action with `metro-codex run`, save the response, then run
+`metro-codex verify`. A nonzero exit, empty/partial output, `REQUIRE_APPROVAL`,
+`ESCALATE_SYSTEM2`, or an `UNKNOWN` receipt is not completion proof.
+
+Example local CLI action:
 
 ```json
 {
@@ -45,12 +67,10 @@ Example local action (UTF-8 text, not file paths):
 }
 ```
 
-For an external intent use `kind: "external_action"`, replace `text` with a
-nonempty `description`, and set `side_effect: true`. This only evaluates policy.
-State is optional and maps strings to strings. Limits: 64 KiB JSON, 32 KiB text,
-4 KiB external description, 64 state entries (128-byte keys/1024-byte values).
-Unknown fields, duplicate keys, null values and unsupported actions are rejected.
-Targets, providers and policy are not caller-configurable.
+For an external CLI intent use `kind: "external_action"`, replace `text` with
+a nonempty `description`, and set `side_effect: true`. This only evaluates
+policy. Never relabel an external action as safe to bypass approval.
 
-This skill applies only to explicit Metro calls; it does not enforce a global
-gate on Codex's other tools. It does not use an OpenAI API key or a Jev API.
+This plugin does not grant global authority over Codex tools, does not provide a
+TypeSafe/Jev API integration, and does not make exactly-once or autonomous
+execution claims.

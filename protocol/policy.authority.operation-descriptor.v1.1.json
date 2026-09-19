@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liminal-rail.local/protocol/policy.authority.operation-descriptor.v1.1.json",
+  "title": "Liminal Policy Authority Operation Descriptor v1.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "operation_class",
+    "action_kind",
+    "target",
+    "side_effect",
+    "input_hash",
+    "descriptor_hash"
+  ],
+  "properties": {
+    "protocol": {
+      "const": "liminal.policy-authority.operation-descriptor.v1.1"
+    },
+    "operation_class": {
+      "type": "string",
+      "minLength": 1
+    },
+    "action_kind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target": {
+      "type": "string",
+      "minLength": 1
+    },
+    "side_effect": {
+      "type": "boolean"
+    },
+    "input_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "descriptor_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

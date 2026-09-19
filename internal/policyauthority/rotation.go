@@ -204,6 +204,17 @@ func weakenedOperations(current, next Manifest) ([]string, error) {
 		newPolicy, err := next.Resolve(oldBinding.OperationClass)
 		if err != nil || !requirementsAtLeast(newPolicy.Requirements, oldBinding.Policy.Requirements) {
 			weakened = append(weakened, oldBinding.OperationClass)
+			continue
+		}
+		var nextBinding *Binding
+		for i := range next.Bindings {
+			if next.Bindings[i].OperationClass == oldBinding.OperationClass {
+				nextBinding = &next.Bindings[i]
+				break
+			}
+		}
+		if nextBinding == nil || nextBinding.ActionKind != oldBinding.ActionKind || nextBinding.Target != oldBinding.Target || nextBinding.SideEffect != oldBinding.SideEffect {
+			weakened = append(weakened, oldBinding.OperationClass)
 		}
 	}
 	sort.Strings(weakened)

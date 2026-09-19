@@ -1,28 +1,34 @@
 # Liminal Rail v1.1 — Signed Policy Authority / Anti-Downgrade
 
-v1.0 proved that a supplied `TrustPolicy` is enforced fail-closed before guarded execution or learning. v1.1 closes the next authority gap:
+v1.0 proved that a supplied `TrustPolicy` is enforced fail-closed before guarded execution or learning. v1.1 closes two higher-level authority gaps:
 
-> An operation must not be allowed to choose its own minimum trust requirements.
+> An operation must not choose its own minimum trust requirements.
+
+> A previously accepted stronger policy-authority head must not silently roll back to an older still-valid chain.
 
 ## Threat model
 
-Without policy-selection authority, a caller could take a sensitive operation such as `hardware.critical` and submit a weaker but otherwise valid policy such as `external+portable`. The v1.0 gate would correctly evaluate that weaker policy; the problem is that the wrong policy was selected.
+Two downgrade classes matter:
 
-v1.1 therefore separates **policy definition** from **policy selection authority**.
+1. **policy substitution** — a sensitive operation asks for a weaker but valid policy;
+2. **classification / chain rollback** — a sensitive action is mislabeled as a weak operation class, or a restart re-opens an older valid manifest chain after a stronger generation was accepted.
+
+v1.1 therefore binds the execution contract, policy selection and accepted chain head separately.
 
 ```text
-operation class
+action kind + target + side-effect flag + exact inputs
     |
     v
-pinned policy-authority root
+signed manifest binding
+    |
+    +--> derived operation class
+    +--> exact TrustPolicy hash
     |
     v
-signed manifest generation
-    |
-    +--> exact operation -> TrustPolicy hash
+durable accepted chain head
     |
     v
-content-addressed authorization
+content-addressed Authorization
     |
     v
 v1.0 TrustGate
@@ -30,95 +36,138 @@ v1.0 TrustGate
  ALLOW / DENY
 ```
 
-## Signed manifest
+## Signed execution binding
 
-A policy-authority manifest contains a canonical lexically sorted set of bindings:
+Each canonical manifest binding contains:
 
 ```text
-operation_class -> complete TrustPolicy
+operation_class
+action_kind
+target
+side_effect
+complete TrustPolicy
 ```
 
-The complete manifest is content-addressed. The manifest is then signed with Ed25519. Trust does not come from a self-valid signature alone: the first signed manifest is pinned by a small `TrustRoot` containing the exact root manifest hash, signed-manifest hash, issuer identity, and issuer key fingerprint.
+The execution contract `action_kind + target + side_effect` must be unique inside one manifest, so a caller cannot choose among multiple classes for the same contract.
 
-## Exact policy binding
+At runtime the resolver does **not** select policy from a caller-supplied class. It resolves the concrete action contract and derives the signed operation class. The resulting `OperationDescriptor` additionally commits to the SHA-256 hash of the exact action inputs.
 
-`Resolver.Resolve(operationClass)` returns both:
+A declared class may be supplied only as an assertion. If it differs from the class derived from the signed execution binding, the gate fails before a `TrustGate`, dispatcher or learner is reachable.
 
-1. the exact authoritative `TrustPolicy`; and
-2. a content-addressed `Authorization` containing the operation class, policy hash, manifest hash, signed-manifest hash, issuer key id, generation, and rotation hash.
+## Signed manifest and policy binding
 
-`NewPolicyAuthorityGateWithRequestedPolicy` accepts a caller-supplied policy only when its `policy_hash` is exactly the authority-bound policy hash. A weaker policy is rejected **before a TrustGate exists**, so no guarded effect or learning callback is reachable through that path.
+The complete manifest is content-addressed and signed with Ed25519. Trust does not come from a self-valid signature alone: the first signed manifest is pinned by a small `TrustRoot` containing the exact root manifest hash, signed-manifest hash, issuer identity and issuer key fingerprint.
 
-Normal callers should use `NewPolicyAuthorityGate`, which resolves the authoritative policy internally and gives the caller no policy-selection choice.
+The runtime `Authorization` commits to:
 
-## Rotation and downgrade semantics
+- authority id and generation;
+- derived operation class;
+- action kind, target and side-effect flag;
+- exact input hash and operation-descriptor hash;
+- exact TrustPolicy hash;
+- manifest and signed-manifest hashes;
+- issuer key id and rotation hash;
+- durable accepted chain-head hash.
+
+A weaker caller-selected policy is rejected before the v1.0 gate exists.
+
+## Durable anti-rollback head
+
+`OpenDurableResolver` requires a persistent chain-head state file. The accepted head contains:
+
+```text
+authority_id
+generation
+signed_manifest_hash
+rotation_hash
+head_hash
+```
+
+On first acceptance the head is durably written with file fsync, atomic rename and directory fsync.
+
+On restart:
+
+- a lower generation is rejected as `ErrChainRollback`;
+- a same-generation different head is rejected as `ErrChainFork`;
+- a higher candidate must contain the exact previously accepted head before it can advance state;
+- an exact restart preserves the same head and authorization hashes.
+
+Deleting or tampering with the local head file is outside this proof's tamper-resistance claim; malformed state fails closed.
+
+## Bound dispatch
+
+`PolicyAuthorityGate` stores an immutable copy of the concrete action and its verified operation descriptor. Execution goes through an `OperationDispatcher` that receives only that bound operation. The caller cannot replace the action descriptor between authorization and dispatch.
+
+The dispatcher/executor remains a trusted execution boundary: this bead proves descriptor-to-policy binding, not semantic verification that a compromised executor physically performed only the intended effect.
+
+## Rotation and weakening semantics
 
 Manifest rotation is explicit and signed by the currently trusted issuer. v1.1 requires exactly the next generation and allows issuer-key rotation.
 
-For every operation already present in the previous manifest, the rotation compares trust requirements monotonically:
+For existing operation classes, a transition is treated as weakening if it:
 
-- external identity
-- portable publication
-- hardware backed
-- remote hardware attestation
+- removes the operation;
+- drops a previously required trust property; or
+- changes the signed execution contract (action kind, target or side-effect flag).
 
-Removing an operation or dropping a previously required property is a weakening.
-
-A weakening cannot be signed with `allow_weakening=false`. If the pinned authority deliberately chooses to weaken policy, the rotation must set `allow_weakening=true` and commit the canonical `weakened_operations` list into the signed rotation. This prevents **silent** weakening; it does not prevent the trusted policy authority from intentionally changing policy.
+Silent weakening is rejected. Intentional weakening requires `allow_weakening=true` and a signed canonical `weakened_operations` list.
 
 ## Receipt and Lifetra binding
 
-For an allowed effect, the measured result is bound before Metro hashing to:
+Before Metro hashes an allowed result, v1.1 binds:
 
 ```text
-policy_authority_id
-policy_authority_generation
 policy_operation_class
+policy_action_kind
+policy_target
+policy_side_effect
+policy_input_hash
+policy_operation_descriptor_hash
 policy_authority_policy_hash
 policy_manifest_hash
 policy_signed_manifest_hash
 policy_authority_issuer_key_id
 policy_authority_rotation_hash
+policy_authority_chain_head_hash
 policy_authorization_hash
 ```
 
-The v1.0 trust-decision fields remain separately bound. Lifetra adds refs for the signed manifest, rotation, and authorization while preserving the existing trust-policy/evidence/decision refs.
+Lifetra carries separate refs for the signed manifest, rotation, accepted chain head and authorization, alongside the existing v1.0 policy/evidence/decision refs.
 
 ## Executable proof
 
-The dedicated workflow reconstructs the previous trust chain first:
+The dedicated workflow reconstructs the previous trust chain live:
 
 ```text
-live GitHub OIDC
-  -> v0.8 external-identity proof
-  -> Sigstore keyless publication + verify
-  -> v1.0 TrustEvidence / TrustPolicy proof
-  -> v1.1 signed policy authority
+GitHub OIDC
+ -> v0.8 external-identity proof
+ -> Sigstore keyless publication + verify
+ -> v1.0 TrustEvidence / TrustPolicy proof
+ -> v1.1 signed execution + policy authority
 ```
 
-It then demonstrates:
+It must demonstrate:
 
-- pinned root signed manifest verifies;
-- generation-2 signed rotation verifies;
-- `bounded.cpu.sha256` resolves to the exact external+portable policy and executes one bounded CPU effect;
-- `hardware.critical` resolves to the exact hardware-critical policy and denies the same software-bound evidence before effect/learning;
-- substituting the weaker external+portable policy for `hardware.critical` is rejected before a TrustGate is constructed;
-- tampering manifest content or signature fails verification;
-- serialize/reload preserves the exact authorization hash;
-- an unsigned/silent weakening cannot be rotated with `allow_weakening=false`;
-- an explicitly authorized weakening is marked with `weakened_operations=[hardware.critical]`;
-- Metro and Lifetra carry the policy-authority proof refs.
+- a hardware-critical action falsely declared as `bounded.cpu.sha256` is rejected before dispatch/learning;
+- a weaker policy substituted for the correctly derived hardware class is rejected;
+- the exact hardware policy independently DENYs the same software-bound evidence;
+- the allowed dispatcher receives the exact authority-bound descriptor;
+- restart preserves the accepted chain head and authorization;
+- reopening the older still-valid root-only chain after accepting generation 2 fails closed;
+- a same-generation fork fails closed in unit tests;
+- tampered manifest/signature fails;
+- silent weakening fails while explicitly signed weakening is visible;
+- Metro and Lifetra bind descriptor, chain-head and authorization identities.
 
 ## Claim ceiling
 
-v1.1 demonstrates signed policy-selection authority and anti-downgrade behavior in the guarded Liminal Rail path.
+v1.1 demonstrates signed execution classification, policy-selection authority and durable anti-rollback behavior in the guarded Liminal Rail path.
 
 It does **not** demonstrate:
 
 - OS/kernel mandatory access control;
-- hardware-rooted storage of the policy-authority private key;
+- hardware-rooted or tamper-proof storage of the accepted head or policy-authority keys;
+- semantic correctness of a compromised dispatcher/executor;
 - real-world identity of the issuer;
-- compromise resistance if the pinned policy-authority key itself is malicious or stolen;
-- impossibility for arbitrary future code to bypass the guard API.
-
-A pinned authority can intentionally weaken a future manifest only through an explicit signed rotation that names the weakened operations. That is governance visibility, not protection from a malicious trusted root.
+- safety after compromise of the pinned policy-authority root;
+- impossibility for arbitrary future code to bypass the guarded API.

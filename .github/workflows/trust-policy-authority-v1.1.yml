@@ -130,11 +130,12 @@ jobs:
       - name: Run signed policy-authority proof
         shell: bash
         run: |
-          rm -f policy-authority-proof-v1.1.json policy-authority-v1.1.learning.jsonl
+          rm -f policy-authority-proof-v1.1.json policy-authority-v1.1.learning.jsonl policy-authority-v1.1.head.json
           go run ./cmd/policy-authority-v11-demo \
             --source trust-policy-proof-v1.0.json \
             --out policy-authority-proof-v1.1.json \
             --learning-log policy-authority-v1.1.learning.jsonl \
+            --head-state policy-authority-v1.1.head.json \
             | tee policy-authority-v1.1.log
 
       - name: Verify v1.1 policy-authority invariants
@@ -150,6 +151,10 @@ jobs:
           required = [
               'root_manifest_verified',
               'operation_policy_exact_bound',
+              'operation_class_spoof_rejected',
+              'class_spoof_effect_not_called',
+              'class_spoof_learning_not_called',
+              'bound_dispatcher_exact_descriptor',
               'weak_policy_substitution_rejected',
               'weak_substitution_effect_not_called',
               'weak_substitution_learning_not_called',
@@ -159,6 +164,8 @@ jobs:
               'tampered_manifest_rejected',
               'tampered_signature_rejected',
               'restart_authorization_stable',
+              'rollback_to_old_valid_chain_rejected',
+              'chain_head_bound',
               'explicit_rotation_verified',
               'silent_weakening_rotation_rejected',
               'explicit_weakening_marked',
@@ -180,7 +187,13 @@ jobs:
           assert deny['allowed'] is False
           assert deny['unmet'] == ['hardware_backed', 'remote_hardware_attestation']
           assert auth['operation_class'] == 'bounded.cpu.sha256'
+          assert auth['action_kind'] == 'policy-authority.cpu.sha256'
+          assert auth['target'] == 'executor://policy-authority-local-cpu'
+          assert auth['side_effect'] is False
           assert hardware_auth['operation_class'] == 'hardware.critical'
+          assert hardware_auth['action_kind'] == 'policy-authority.hardware.critical'
+          assert hardware_auth['target'] == 'executor://hardware-critical'
+          assert hardware_auth['side_effect'] is True
           assert auth['generation'] == 2 and hardware_auth['generation'] == 2
           assert auth['policy_hash'] == allow['policy_hash']
           assert hardware_auth['policy_hash'] == deny['policy_hash']
@@ -194,8 +207,10 @@ jobs:
               p['trust_root']['root_manifest_hash'],
               p['trust_root']['root_signed_manifest_hash'],
               p['rotation']['rotation_hash'],
+              p['accepted_chain_head']['head_hash'],
+              auth['input_hash'], auth['operation_descriptor_hash'], auth['chain_head_hash'],
               auth['manifest_hash'], auth['signed_manifest_hash'], auth['authorization_hash'],
-              hardware_auth['authorization_hash'],
+              hardware_auth['input_hash'], hardware_auth['operation_descriptor_hash'], hardware_auth['chain_head_hash'], hardware_auth['authorization_hash'],
           ]:
               assert hex64.fullmatch(value), value
 
@@ -203,6 +218,12 @@ jobs:
           assert result['trust_allowed'] is True
           assert result['policy_authorization_hash'] == auth['authorization_hash']
           assert result['policy_operation_class'] == auth['operation_class']
+          assert result['policy_action_kind'] == auth['action_kind']
+          assert result['policy_target'] == auth['target']
+          assert result['policy_side_effect'] == auth['side_effect']
+          assert result['policy_input_hash'] == auth['input_hash']
+          assert result['policy_operation_descriptor_hash'] == auth['operation_descriptor_hash']
+          assert result['policy_authority_chain_head_hash'] == auth['chain_head_hash']
           assert result['policy_authority_policy_hash'] == auth['policy_hash']
 
           receipt = p['allowed_receipt']
@@ -212,7 +233,11 @@ jobs:
           refs = p['allowed_observation']['proof_refs']
           assert 'adaptive-policy-authority-manifest://sha256/' + auth['signed_manifest_hash'] in refs
           assert 'adaptive-policy-authority-rotation://sha256/' + auth['rotation_hash'] in refs
+          assert 'adaptive-policy-authority-head://sha256/' + auth['chain_head_hash'] in refs
           assert 'adaptive-policy-authorization://sha256/' + auth['authorization_hash'] in refs
+
+          head = json.loads(Path(p['head_state']).read_text())
+          assert head['head_hash'] == p['accepted_chain_head']['head_hash'] == auth['chain_head_hash']
 
           lines = [x for x in Path(p['learning_log']).read_text().splitlines() if x.strip()]
           assert len(lines) == 1
@@ -242,4 +267,5 @@ jobs:
             trust-policy-v1.0.log
             policy-authority-proof-v1.1.json
             policy-authority-v1.1.learning.jsonl
+            policy-authority-v1.1.head.json
             policy-authority-v1.1.log

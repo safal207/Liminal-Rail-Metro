@@ -4,17 +4,85 @@
   "title": "Liminal Policy Authorization v1.1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["protocol", "authority_id", "generation", "operation_class", "policy_hash", "manifest_hash", "signed_manifest_hash", "issuer_key_id", "authorization_hash"],
+  "required": [
+    "protocol",
+    "authority_id",
+    "generation",
+    "operation_class",
+    "action_kind",
+    "target",
+    "side_effect",
+    "input_hash",
+    "operation_descriptor_hash",
+    "policy_hash",
+    "manifest_hash",
+    "signed_manifest_hash",
+    "issuer_key_id",
+    "chain_head_hash",
+    "authorization_hash"
+  ],
   "properties": {
-    "protocol": {"const": "liminal.policy-authority.authorization.v1.1"},
-    "authority_id": {"type": "string", "minLength": 1},
-    "generation": {"type": "integer", "minimum": 1},
-    "operation_class": {"type": "string", "minLength": 1},
-    "policy_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "manifest_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "signed_manifest_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "issuer_key_id": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "rotation_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "authorization_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+    "protocol": {
+      "const": "liminal.policy-authority.authorization.v1.1"
+    },
+    "authority_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "operation_class": {
+      "type": "string",
+      "minLength": 1
+    },
+    "policy_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "manifest_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "signed_manifest_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "issuer_key_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "rotation_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "authorization_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "action_kind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target": {
+      "type": "string",
+      "minLength": 1
+    },
+    "side_effect": {
+      "type": "boolean"
+    },
+    "input_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "operation_descriptor_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "chain_head_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
   }
 }
