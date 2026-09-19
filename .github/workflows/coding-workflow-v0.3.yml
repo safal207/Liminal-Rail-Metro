@@ -1,0 +1,80 @@
+name: Coding Workflow v0.3
+
+on:
+  pull_request:
+    paths:
+      - 'internal/codingworkflow/**'
+      - 'internal/metro/**'
+      - 'cmd/metro-check/**'
+      - 'scripts/coding-workflow-proof.py'
+      - 'examples/coding-issue14.contract.json'
+      - 'plugins/liminal-rail-metro/skills/coding-workflow/**'
+      - '.github/workflows/coding-workflow-v0.3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coding-v03-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coding-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Prepare dependency cache outside test execution
+        run: |
+          go mod download
+          echo "GOMODCACHE=$(go env GOMODCACHE)" >> "$GITHUB_ENV"
+          echo "GOCACHE=$(go env GOCACHE)" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/coding-v03"
+      - name: Formatting and local boundary tests
+        run: |
+          test -z "$(gofmt -l internal/codingworkflow internal/metro cmd/metro-check)"
+          go test -count=1 ./internal/codingworkflow ./internal/metro ./cmd/metro-check
+          go vet ./internal/codingworkflow ./internal/metro ./cmd/metro-check
+          go test -race -count=1 ./internal/codingworkflow ./internal/metro ./cmd/metro-check
+      - name: Build verifier outside candidate tree
+        run: |
+          go build -o "$RUNNER_TEMP/metro-check" ./cmd/metro-check
+          sha256sum "$RUNNER_TEMP/metro-check" > "$RUNNER_TEMP/coding-v03/runner.sha256"
+          git rev-parse HEAD > "$RUNNER_TEMP/coding-v03/checkout-sha.txt"
+          git show 3600fae8cf1f7bf1ae9ade429e154aab38ff0f2c:internal/metro/metro.go > "$RUNNER_TEMP/base-metro.go"
+      - name: Real baseline failure, patched success and stale-evidence matrix
+        run: |
+          python3 scripts/coding-workflow-proof.py \
+            --checker "$RUNNER_TEMP/metro-check" \
+            --base-impl "$RUNNER_TEMP/base-metro.go" \
+            --source-root "$GITHUB_WORKSPACE" \
+            --out "$RUNNER_TEMP/coding-v03/isolated-regression"
+      - name: Check actual full repository once, then verify without rerun
+        run: |
+          cp examples/coding-issue14.contract.json "$RUNNER_TEMP/coding-contract.json"
+          "$RUNNER_TEMP/metro-check" check \
+            --repo "$GITHUB_WORKSPACE" --contract "$RUNNER_TEMP/coding-contract.json" \
+            --proof "$RUNNER_TEMP/coding-v03/full-repository-proof.json" \
+            --allow-tests --agent-claim "implementation proposed; claim is not evidence" \
+            > "$RUNNER_TEMP/coding-v03/check-summary.json"
+          digest=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["evidence_sha256"])' "$RUNNER_TEMP/coding-v03/check-summary.json")
+          "$RUNNER_TEMP/metro-check" verify \
+            --repo "$GITHUB_WORKSPACE" --contract "$RUNNER_TEMP/coding-contract.json" \
+            --proof "$RUNNER_TEMP/coding-v03/full-repository-proof.json" \
+            --expected-evidence-sha256 "$digest" \
+            > "$RUNNER_TEMP/coding-v03/verify-summary.json"
+          cat "$RUNNER_TEMP/coding-v03/check-summary.json" "$RUNNER_TEMP/coding-v03/verify-summary.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coding-workflow-v0.3-proof
+          path: ${{ runner.temp }}/coding-v03/
+          if-no-files-found: error
