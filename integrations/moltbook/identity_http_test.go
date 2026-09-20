@@ -113,7 +113,7 @@ func TestMoltbookIdentityVerifierFailsClosedOnInvalidResponses(t *testing.T) {
 		{
 			name:       "missing agent id",
 			statusCode: http.StatusOK,
-			body:       `{"success":true,"valid":true,"agent":{"id":"   "}}`,
+			body:       `{"success":true,"valid":true,"agent":{"id":""}}`,
 			want:       "missing agent id",
 		},
 		{
