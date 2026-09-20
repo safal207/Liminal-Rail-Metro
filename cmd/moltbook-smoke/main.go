@@ -20,6 +20,13 @@ import (
 	"github.com/safal207/Liminal-Rail-Metro/internal/metro"
 )
 
+const (
+	smokeReportSchema            = "moltbook.smoke.v0.2"
+	identityProvenanceSynthetic = "synthetic_local_rehearsal"
+	identityProvenanceMoltbook  = "moltbook_live_verification"
+	syntheticIdentitySource      = "local://moltbook-smoke/rehearsal"
+)
+
 type revision struct {
 	Commit string `json:"commit"`
 	Dirty  bool   `json:"dirty"`
@@ -32,9 +39,10 @@ type report struct {
 	FailureCode          string                              `json:"failure_code,omitempty"`
 	Revision             revision                            `json:"revision"`
 	ObservedAt           string                              `json:"observed_at"`
-	IdentityStatus       moltbook.IdentityVerificationStatus `json:"identity_status"`
+	IdentityStatus       moltbook.IdentityVerificationStatus `json:"identity_status,omitempty"`
 	IdentityVerifiedAt   string                              `json:"identity_verified_at,omitempty"`
 	VerificationSource   string                              `json:"verification_source,omitempty"`
+	IdentityProvenance   string                              `json:"identity_provenance"`
 	LiveIdentityVerified bool                                `json:"live_identity_verified"`
 	IdentityAttempts     int                                 `json:"identity_attempts"`
 	AuthorityCalls       int                                 `json:"authority_calls"`
@@ -72,9 +80,10 @@ func run(args []string, stdout, stderr io.Writer, getenv func(string) string, cl
 	}
 
 	r := report{
-		Schema: "moltbook.smoke.v0.1", Mode: "offline_rehearsal", Status: "FAIL",
+		Schema: smokeReportSchema, Mode: "offline_rehearsal", Status: "FAIL",
 		Revision: rev, ObservedAt: metro.NowISO(),
-		IdentityStatus:  moltbook.IdentityStatusUnknownOrHold,
+		IdentityProvenance: identityProvenanceSynthetic,
+		VerificationSource: syntheticIdentitySource,
 		EvidenceBackend: "metro.Verify/local-control-fixture",
 	}
 	fail := func(status, code string) int {
@@ -84,6 +93,8 @@ func run(args []string, stdout, stderr io.Writer, getenv func(string) string, cl
 	appKey, token := "moltdev_offline_rehearsal", "offline-rehearsal-token"
 	if *live {
 		r.Mode = "live_identity_local_fixture"
+		r.IdentityProvenance = identityProvenanceMoltbook
+		r.VerificationSource = ""
 		if !validCommit(rev.Commit) || rev.Dirty {
 			return fail("BLOCKED", "clean_recorded_build_required")
 		}
@@ -109,7 +120,7 @@ func run(args []string, stdout, stderr io.Writer, getenv func(string) string, cl
 	if err != nil {
 		return fail("FAIL", "authority_setup_failed")
 	}
-	station, err := moltbook.NewStation(identity, evidence, authority)
+	station, err := moltbook.NewStationForTarget(identity, evidence, authority, smokeTarget)
 	if err != nil {
 		return fail("FAIL", "station_setup_failed")
 	}
@@ -119,14 +130,16 @@ func run(args []string, stdout, stderr io.Writer, getenv func(string) string, cl
 	}
 	result, err := station.Execute(moltbook.Request{
 		IdentityToken: token, ActionID: "molt-smoke-" + hex.EncodeToString(nonce[:]),
-		Intent: moltbook.IntentVerifyEvidence, Target: moltbook.TargetAgentProof,
+		Intent: moltbook.IntentVerifyEvidence, Target: smokeTarget,
 		EvidenceRef: controlFixtureRef, ExternalEffects: false,
 	})
 	r.IdentityAttempts, r.AuthorityCalls, r.EvidenceCalls = identity.calls, authority.calls, evidence.calls
-	r.IdentityStatus = identity.result.Status
-	r.IdentityVerifiedAt = identity.result.VerifiedAt
-	r.VerificationSource = identity.result.VerificationSource
-	r.LiveIdentityVerified = *live && r.IdentityStatus == moltbook.IdentityStatusVerified
+	if *live {
+		r.IdentityStatus = identity.result.Status
+		r.IdentityVerifiedAt = identity.result.VerifiedAt
+		r.VerificationSource = identity.result.VerificationSource
+		r.LiveIdentityVerified = r.IdentityStatus == moltbook.IdentityStatusVerified
+	}
 	if err != nil {
 		// Neither the provider body nor error strings are part of the report.
 		return fail("FAIL", "identity_to_receipt_failed")
@@ -215,26 +228,33 @@ func verifyReport(path string, stdout, stderr io.Writer) int {
 		return fail()
 	}
 	var r report
-	if json.Unmarshal(data, &r) != nil || r.Schema != "moltbook.smoke.v0.1" || r.Status != "PASS" || r.StationResult == nil {
+	if json.Unmarshal(data, &r) != nil || r.Schema != smokeReportSchema || r.Status != "PASS" || r.StationResult == nil {
 		return fail()
 	}
 	// These are consistency checks, not authentication of the report's author.
-	if r.FailureCode != "" || r.IdentityStatus != moltbook.IdentityStatusVerified ||
+	if r.FailureCode != "" ||
 		r.IdentityAttempts != 1 || r.AuthorityCalls != 1 || r.EvidenceCalls != 1 ||
-		r.EvidenceBackend != "metro.Verify/local-control-fixture" ||
-		r.VerificationSource != "https://www.moltbook.com/api/v1/agents/verify-identity" {
-		return fail()
-	}
-	if _, err := time.Parse(time.RFC3339Nano, r.IdentityVerifiedAt); err != nil {
+		r.EvidenceBackend != "metro.Verify/local-control-fixture" {
 		return fail()
 	}
 	switch r.Mode {
 	case "offline_rehearsal":
-		if r.LiveIdentityVerified {
+		if r.LiveIdentityVerified ||
+			r.IdentityProvenance != identityProvenanceSynthetic ||
+			r.IdentityStatus != "" ||
+			r.IdentityVerifiedAt != "" ||
+			r.VerificationSource != syntheticIdentitySource {
 			return fail()
 		}
 	case "live_identity_local_fixture":
-		if !r.LiveIdentityVerified || !validCommit(r.Revision.Commit) || r.Revision.Dirty {
+		if !r.LiveIdentityVerified ||
+			r.IdentityProvenance != identityProvenanceMoltbook ||
+			r.IdentityStatus != moltbook.IdentityStatusVerified ||
+			r.VerificationSource != "https://www.moltbook.com/api/v1/agents/verify-identity" ||
+			!validCommit(r.Revision.Commit) || r.Revision.Dirty {
+			return fail()
+		}
+		if _, err := time.Parse(time.RFC3339Nano, r.IdentityVerifiedAt); err != nil {
 			return fail()
 		}
 	default:
@@ -245,6 +265,8 @@ func verifyReport(path string, stdout, stderr io.Writer) int {
 	}
 	packet := r.StationResult.Packet
 	if !allowedSmokePacket(packet, r.StationResult.Route.SelectedTarget) ||
+		r.StationResult.Route.SelectedTarget != smokeTarget ||
+		r.StationResult.Receipt.ExecutorID != smokeTarget ||
 		r.StationResult.Verification["backend"] != r.EvidenceBackend ||
 		r.StationResult.Authority.ProviderID != "moltbook-smoke-local-authority" ||
 		r.StationResult.Route.PolicyRef != "policy://moltbook/smoke/read-only-control-fixture-v1" {
