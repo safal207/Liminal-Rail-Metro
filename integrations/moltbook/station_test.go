@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/safal207/Liminal-Rail-Metro/internal/decisionplane"
@@ -37,6 +39,24 @@ func (f *fakeEvidenceVerifier) VerifyEvidence(evidenceRef string) (map[string]an
 		return nil, f.err
 	}
 	return f.result, nil
+}
+
+type concurrentIdentityVerifier struct{}
+
+func (concurrentIdentityVerifier) VerifyIdentity(string) (VerifiedIdentity, error) {
+	return VerifiedIdentity{AgentID: "agent-concurrent", Verified: true}, nil
+}
+
+type concurrentEvidenceVerifier struct {
+	calls atomic.Int64
+}
+
+func (f *concurrentEvidenceVerifier) VerifyEvidence(string) (map[string]any, error) {
+	f.calls.Add(1)
+	return map[string]any{
+		"verdict":         "VERIFIED",
+		"evidence_sha256": "concurrent-fixture-sha256",
+	}, nil
 }
 
 type providerFunc func(context.Context, decisionplane.Request) (decisionplane.Decision, error)
@@ -464,6 +484,59 @@ func TestDuplicateActionDoesNotRedispatchEvidence(t *testing.T) {
 	}
 }
 
+func TestConcurrentDuplicateActionDispatchesEvidenceExactlyOnce(t *testing.T) {
+	evidence := &concurrentEvidenceVerifier{}
+	authority, err := NewDecisionPlaneAuthority(decisionplane.StaticProvider{
+		ID: "moltbook-concurrent-proof",
+		Scores: map[string]float64{
+			"moltbook-target": 1,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	station, err := NewStation(concurrentIdentityVerifier{}, evidence, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const callers = 32
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	wg.Add(callers)
+	for i := 0; i < callers; i++ {
+		go func() {
+			defer wg.Done()
+			_, err := station.Execute(validRequest())
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	successes := 0
+	duplicates := 0
+	for err := range errs {
+		switch {
+		case err == nil:
+			successes++
+		case strings.Contains(err.Error(), "already been consumed"):
+			duplicates++
+		default:
+			t.Fatalf("unexpected concurrent result: %v", err)
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("successful dispatches = %d, want exactly 1", successes)
+	}
+	if duplicates != callers-1 {
+		t.Fatalf("duplicate rejections = %d, want %d", duplicates, callers-1)
+	}
+	if got := evidence.calls.Load(); got != 1 {
+		t.Fatalf("evidence verifier calls = %d, want exactly 1", got)
+	}
+}
+
 func TestExecutionErrorDoesNotBlindlyReplayConsumedAction(t *testing.T) {
 	station, _, evidence := newTestStation(t)
 	evidence.err = errors.New("ambiguous verifier failure")
@@ -606,6 +679,19 @@ func TestPacketHashBindingBreaksOnReceiptTamper(t *testing.T) {
 
 	if err := VerifyResult(out); err == nil {
 		t.Fatal("expected receipt packet-hash tampering to break station verification")
+	}
+}
+
+func TestReceiptExecutionStatusTamperFailsStationVerification(t *testing.T) {
+	station, _, _ := newTestStation(t)
+	out, err := station.Execute(validRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out.Receipt.Status = "UNKNOWN"
+	if err := VerifyResult(out); err == nil || !strings.Contains(err.Error(), "execution status mismatch") {
+		t.Fatalf("expected execution status mismatch, got %v", err)
 	}
 }
 
