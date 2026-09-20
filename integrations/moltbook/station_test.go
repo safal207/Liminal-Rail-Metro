@@ -1,11 +1,13 @@
 package moltbook
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 
+	"github.com/safal207/Liminal-Rail-Metro/internal/decisionplane"
 	"github.com/safal207/Liminal-Rail-Metro/internal/metro"
 )
 
@@ -37,6 +39,67 @@ func (f *fakeEvidenceVerifier) VerifyEvidence(evidenceRef string) (map[string]an
 	return f.result, nil
 }
 
+type providerFunc func(context.Context, decisionplane.Request) (decisionplane.Decision, error)
+
+func (f providerFunc) Decide(ctx context.Context, request decisionplane.Request) (decisionplane.Decision, error) {
+	return f(ctx, request)
+}
+
+type fakeAuthorityGate struct {
+	disposition       string
+	packetHashOverride string
+	actionIDOverride   string
+	targetOverride     string
+	err                error
+	calls              int
+}
+
+func (f *fakeAuthorityGate) Authorize(_ context.Context, packet metro.Packet, target string) (AuthorityDecision, error) {
+	f.calls++
+	if f.err != nil {
+		return AuthorityDecision{}, f.err
+	}
+	packetHash, err := metro.HashJSON(packet)
+	if err != nil {
+		return AuthorityDecision{}, err
+	}
+	if f.packetHashOverride != "" {
+		packetHash = f.packetHashOverride
+	}
+	actionID := packet.ActionID
+	if f.actionIDOverride != "" {
+		actionID = f.actionIDOverride
+	}
+	authorityTarget := target
+	if f.targetOverride != "" {
+		authorityTarget = f.targetOverride
+	}
+	disposition := f.disposition
+	if disposition == "" {
+		disposition = DispositionAutoRoute
+	}
+	route := metro.Route{
+		Protocol:       metro.RouteProtocol,
+		RouteID:        "route-" + packet.ActionID,
+		ActionID:       packet.ActionID,
+		RouterID:       "fake-authority",
+		DecisionMode:   "authority-test",
+		SelectedTarget: target,
+		Confidence:     1,
+		PolicyRef:      "policy://moltbook/test",
+		DecidedAt:      metro.NowISO(),
+	}
+	return AuthorityDecision{
+		Disposition: disposition,
+		ActionID:    actionID,
+		PacketHash:  packetHash,
+		Target:      authorityTarget,
+		ProviderID:  "fake-authority",
+		ReasonCode:  "test",
+		Route:       &route,
+	}, nil
+}
+
 func newTestStation(t *testing.T) (*Station, *fakeIdentityVerifier, *fakeEvidenceVerifier) {
 	t.Helper()
 
@@ -52,11 +115,38 @@ func newTestStation(t *testing.T) (*Station, *fakeIdentityVerifier, *fakeEvidenc
 			"evidence_sha256": "fixture-sha256",
 		},
 	}
-	station, err := NewStation(identity, evidence)
+	authority, err := NewDecisionPlaneAuthority(decisionplane.StaticProvider{
+		ID: "moltbook-static-proof",
+		Scores: map[string]float64{
+			"moltbook-target": 1,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	station, err := NewStation(identity, evidence, authority)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return station, identity, evidence
+}
+
+func newStationWithAuthority(t *testing.T, authority AuthorityGate) (*Station, *fakeEvidenceVerifier) {
+	t.Helper()
+	identity := &fakeIdentityVerifier{
+		identity: VerifiedIdentity{AgentID: "agent-123", Verified: true},
+	}
+	evidence := &fakeEvidenceVerifier{
+		result: map[string]any{
+			"verdict":         "VERIFIED",
+			"evidence_sha256": "fixture-sha256",
+		},
+	}
+	station, err := NewStation(identity, evidence, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return station, evidence
 }
 
 func validRequest() Request {
@@ -70,7 +160,7 @@ func validRequest() Request {
 	}
 }
 
-func TestExecuteBindsVerifiedIdentityPacketAndVerdictToReceipt(t *testing.T) {
+func TestExecuteBindsIdentityAuthorityPacketAndVerdictToReceipt(t *testing.T) {
 	station, identity, evidence := newTestStation(t)
 
 	out, err := station.Execute(validRequest())
@@ -83,6 +173,18 @@ func TestExecuteBindsVerifiedIdentityPacketAndVerdictToReceipt(t *testing.T) {
 	}
 	if evidence.calls != 1 {
 		t.Fatalf("evidence verification calls = %d, want 1", evidence.calls)
+	}
+	if out.Authority.Disposition != DispositionAutoRoute {
+		t.Fatalf("authority disposition = %q, want %q", out.Authority.Disposition, DispositionAutoRoute)
+	}
+	if out.Authority.PacketHash != out.PacketHash {
+		t.Fatalf("authority packet hash = %q, want %q", out.Authority.PacketHash, out.PacketHash)
+	}
+	if out.Authority.ActionID != out.Packet.ActionID {
+		t.Fatal("authority is not bound to packet action_id")
+	}
+	if out.Authority.Target != TargetAgentProof {
+		t.Fatalf("authority target = %q, want %q", out.Authority.Target, TargetAgentProof)
 	}
 	if out.Route.SelectedTarget != TargetAgentProof {
 		t.Fatalf("selected target = %q, want %q", out.Route.SelectedTarget, TargetAgentProof)
@@ -104,6 +206,12 @@ func TestExecuteBindsVerifiedIdentityPacketAndVerdictToReceipt(t *testing.T) {
 	if got := out.ReceiptResult["packet_hash"]; got != out.PacketHash {
 		t.Fatalf("receipt packet_hash = %v, want %q", got, out.PacketHash)
 	}
+	if got := out.ReceiptResult["authority_hash"]; got != out.AuthorityHash {
+		t.Fatalf("receipt authority_hash = %v, want %q", got, out.AuthorityHash)
+	}
+	if got := out.ReceiptResult["authority_result"]; got != DispositionAutoRoute {
+		t.Fatalf("receipt authority result = %v, want %q", got, DispositionAutoRoute)
+	}
 	if got := out.ReceiptResult["identity_ref"]; got != out.IdentityRef {
 		t.Fatalf("receipt identity_ref = %v, want %q", got, out.IdentityRef)
 	}
@@ -124,6 +232,132 @@ func TestExecuteBindsVerifiedIdentityPacketAndVerdictToReceipt(t *testing.T) {
 	}
 	if err := VerifyResult(out); err != nil {
 		t.Fatalf("station result verification failed: %v", err)
+	}
+}
+
+func TestExplicitAllowAuthorityCanDispatch(t *testing.T) {
+	authority := &fakeAuthorityGate{disposition: DispositionAllow}
+	station, evidence := newStationWithAuthority(t, authority)
+
+	out, err := station.Execute(validRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Authority.Disposition != DispositionAllow {
+		t.Fatalf("authority disposition = %q, want ALLOW", out.Authority.Disposition)
+	}
+	if evidence.calls != 1 {
+		t.Fatalf("evidence verifier called %d times, want 1", evidence.calls)
+	}
+	if err := VerifyResult(out); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNonPermittingAuthorityNeverDispatchesEvidence(t *testing.T) {
+	for _, disposition := range []string{"DENY", "UNKNOWN", decisionplane.DispositionEscalateSystem2, decisionplane.DispositionRequireApproval} {
+		t.Run(disposition, func(t *testing.T) {
+			authority := &fakeAuthorityGate{disposition: disposition}
+			station, evidence := newStationWithAuthority(t, authority)
+
+			_, err := station.Execute(validRequest())
+			if err == nil || !strings.Contains(err.Error(), "does not permit dispatch") {
+				t.Fatalf("expected authority rejection, got %v", err)
+			}
+			if evidence.calls != 0 {
+				t.Fatalf("evidence verifier called %d times, want 0", evidence.calls)
+			}
+		})
+	}
+}
+
+func TestLowConfidenceDecisionPlaneAuthorityNeverDispatchesEvidence(t *testing.T) {
+	provider := providerFunc(func(_ context.Context, request decisionplane.Request) (decisionplane.Decision, error) {
+		return decisionplane.NewDecision(
+			request,
+			"low-confidence-proof",
+			"moltbook-target",
+			[]decisionplane.Probability{{ChoiceID: "moltbook-target", Probability: 1}},
+			0.50,
+		), nil
+	})
+	authority, err := NewDecisionPlaneAuthority(provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	station, evidence := newStationWithAuthority(t, authority)
+
+	_, err = station.Execute(validRequest())
+	if err == nil || !strings.Contains(err.Error(), "does not permit dispatch") {
+		t.Fatalf("expected low-confidence authority rejection, got %v", err)
+	}
+	if evidence.calls != 0 {
+		t.Fatalf("evidence verifier called %d times, want 0", evidence.calls)
+	}
+}
+
+func TestMismatchedDecisionPlaneBindingsNeverDispatchEvidence(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*decisionplane.Decision)
+		want   string
+	}{
+		{
+			name: "packet hash",
+			mutate: func(decision *decisionplane.Decision) {
+				decision.PacketHash = strings.Repeat("0", 64)
+			},
+			want: "packet_hash mismatch",
+		},
+		{
+			name: "action id",
+			mutate: func(decision *decisionplane.Decision) {
+				decision.ActionID = "other-action"
+			},
+			want: "action_id is not bound",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := providerFunc(func(_ context.Context, request decisionplane.Request) (decisionplane.Decision, error) {
+				decision := decisionplane.NewDecision(
+					request,
+					"tampered-proof",
+					"moltbook-target",
+					[]decisionplane.Probability{{ChoiceID: "moltbook-target", Probability: 1}},
+					1,
+				)
+				tt.mutate(&decision)
+				return decision, nil
+			})
+			authority, err := NewDecisionPlaneAuthority(provider)
+			if err != nil {
+				t.Fatal(err)
+			}
+			station, evidence := newStationWithAuthority(t, authority)
+
+			_, err = station.Execute(validRequest())
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("expected %q rejection, got %v", tt.want, err)
+			}
+			if evidence.calls != 0 {
+				t.Fatalf("evidence verifier called %d times, want 0", evidence.calls)
+			}
+		})
+	}
+}
+
+func TestMismatchedAuthorityTargetNeverDispatchesEvidence(t *testing.T) {
+	authority := &fakeAuthorityGate{targetOverride: "other-target"}
+	station, evidence := newStationWithAuthority(t, authority)
+
+	_, err := station.Execute(validRequest())
+	if err == nil || !strings.Contains(err.Error(), "authority target mismatch") {
+		t.Fatalf("expected authority target rejection, got %v", err)
+	}
+	if evidence.calls != 0 {
+		t.Fatalf("evidence verifier called %d times, want 0", evidence.calls)
 	}
 }
 
@@ -340,6 +574,19 @@ func TestFullPacketTamperFailsStationVerification(t *testing.T) {
 				t.Fatalf("expected packet hash mismatch, got %v", err)
 			}
 		})
+	}
+}
+
+func TestAuthorityTamperFailsStationVerification(t *testing.T) {
+	station, _, _ := newTestStation(t)
+	out, err := station.Execute(validRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out.Authority.ProviderID = "tampered-provider"
+	if err := VerifyResult(out); err == nil || !strings.Contains(err.Error(), "authority hash mismatch") {
+		t.Fatalf("expected authority hash mismatch, got %v", err)
 	}
 }
 
