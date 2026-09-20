@@ -30,8 +30,10 @@ This is a point-in-time observation, not a permanent identity fact.
 ### INVALID
 
 Used only for an explicitly unusable identity credential under the current
-contract, such as an empty token or a provider response that explicitly reports
-the identity as invalid.
+contract, such as an empty token or a provider response with `valid=false`.
+
+A bare `success=false` is **not** interpreted as INVALID because the public
+provider contract does not define that field as an identity-rejection signal.
 
 ### UNKNOWN_OR_HOLD
 
@@ -40,6 +42,7 @@ Used when verification cannot be established reliably, including:
 - transport failure;
 - context cancellation;
 - timeout;
+- provider `success=false` without a documented identity-rejection meaning;
 - non-2xx provider response whose meaning is not safe to infer;
 - malformed JSON;
 - oversized response;
