@@ -62,6 +62,37 @@ func TestContributionReceiptStaleHead(t *testing.T) {
 	}
 }
 
+
+func TestContributionReceiptValidateRejectsInvalidTelemetry(t *testing.T) {
+	dir := t.TempDir()
+	paths := fixtureFiles(t, dir)
+	base := BuildInput{
+		IssueURL: "https://github.com/SWE-agent/SWE-agent/issues/1524", Repository: "SWE-agent/SWE-agent", RunID: "fixture-1524",
+		BaseSHA: "3ea751c087f32b16e039a2233dd6eefecef325d5", HeadSHA: "1111111111111111111111111111111111111111",
+		PatchPath: paths[0], TrajectoryPath: paths[1], ConfigPath: paths[2], EnvironmentPath: paths[3], EvaluationPath: paths[4],
+		TerminationReason: "submitted",
+	}
+	receipt, err := BuildContributionReceipt(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	negativeUsage := receipt
+	negativeUsage.Usage.InputTokens = -1
+	negativeUsage.ReceiptHash, _ = contributionHash(negativeUsage)
+	if err := negativeUsage.Validate(); err == nil {
+		t.Fatal("expected validation to reject negative usage")
+	}
+
+	invalidTiming := receipt
+	invalidTiming.Timing.WallTimeMS = 100
+	invalidTiming.Timing.TimeToFirstEvidenceMS = 101
+	invalidTiming.ReceiptHash, _ = contributionHash(invalidTiming)
+	if err := invalidTiming.Validate(); err == nil {
+		t.Fatal("expected validation to reject time_to_first_evidence_ms greater than wall_time_ms")
+	}
+}
+
 func TestReviewReceiptBindsExactContribution(t *testing.T) {
 	dir := t.TempDir()
 	paths := fixtureFiles(t, dir)
