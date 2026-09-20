@@ -13,10 +13,31 @@ action and a tampered proof, and checks that an external action does not execute
 No account, model API, Moltbook app key, token, Rust toolchain, or payment is needed.
 The initial build downloads a Go container image. Runtime actions are local only.
 
+## Get the preview
+
+While PR #29 is a draft, these files are not on `main`. With Git installed, use
+a new local directory so existing work is not changed:
+
+```sh
+git clone https://github.com/safal207/Liminal-Rail-Metro.git liminal-rail-preview
+cd liminal-rail-preview
+git fetch origin refs/pull/29/head
+git switch --detach FETCH_HEAD
+git rev-parse HEAD
+```
+
+Record the printed commit SHA with any test result. The PR head can change;
+a successful run on one SHA does not validate a later SHA. Do not substitute
+`main` if fetching this preview fails. These commands do not merge the PR.
+
+The commands below are an evaluation recipe, not evidence that a run has passed.
+Check PR #29 for exact-head test execution and independent review results before
+treating the package as validated. No production-readiness claim is made.
+
 ## Start with Docker
 
-Install a current Docker Engine/Desktop with Docker Compose v2. From this branch's
-repository root:
+Install a current Docker Engine/Desktop with Docker Compose v2. From the preview
+repository root obtained above:
 
 ```sh
 docker compose up --build --wait rail
@@ -52,7 +73,8 @@ The Docker build context is allowlisted to Go sources and module metadata.
 
 ## Without Docker
 
-From the repository root, with a supported Go version (CI uses Go 1.27.1):
+From the preview repository root, with a supported Go version (the workflow pins
+Go 1.27.1):
 
 ```sh
 go build -o liminal-rail ./cmd/liminal-rail
@@ -143,10 +165,11 @@ Do not generalize its replay behavior to payments, writes or other side effects.
 
 ## Verification and claim ceiling
 
-`Developer Quickstart` CI checks out the exact PR head (not an implicit merge
-ref), runs the full Go suite, focused race tests and vet, then builds the actual
-Docker image and runs the Compose demo. It uploads the sanitized demo summary.
-CI success is authoring evidence, not an independent security review.
+The `Developer Quickstart` workflow is configured to check out the exact PR head
+(not an implicit merge ref), run the full Go suite, focused race tests and vet,
+then build the actual Docker image and run the Compose demo. It is configured
+to upload the sanitized demo summary. This configuration alone is not execution
+evidence; even a successful CI run is not an independent security review.
 
 A receipt/evidence hash is unsigned. Anyone can create another internally
 consistent proof. Verification does not authenticate the submitter, attest a
