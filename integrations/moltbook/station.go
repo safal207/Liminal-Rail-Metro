@@ -36,11 +36,13 @@ type Request struct {
 }
 
 type Result struct {
-	IdentityRef  string         `json:"identity_ref"`
-	Packet       metro.Packet   `json:"packet"`
-	Route        metro.Route    `json:"route"`
-	Verification map[string]any `json:"verification"`
-	Receipt      metro.Receipt  `json:"receipt"`
+	IdentityRef   string         `json:"identity_ref"`
+	PacketHash    string         `json:"packet_hash"`
+	Packet        metro.Packet   `json:"packet"`
+	Route         metro.Route    `json:"route"`
+	Verification  map[string]any `json:"verification"`
+	ReceiptResult map[string]any `json:"receipt_result"`
+	Receipt       metro.Receipt  `json:"receipt"`
 }
 
 type Station struct {
@@ -139,26 +141,55 @@ func (s *Station) Execute(req Request) (Result, error) {
 		return Result{}, errors.New("verification result is missing")
 	}
 
+	verdict, ok := nonEmptyString(verification["verdict"])
+	if !ok {
+		return Result{}, errors.New("verification verdict is missing")
+	}
+	evidenceHash, ok := nonEmptyString(verification["evidence_sha256"])
+	if !ok {
+		return Result{}, errors.New("verification evidence_sha256 is missing")
+	}
+
+	packetHash, err := metro.HashJSON(packet)
+	if err != nil {
+		return Result{}, fmt.Errorf("hash packet: %w", err)
+	}
+	verificationHash, err := metro.HashJSON(verification)
+	if err != nil {
+		return Result{}, fmt.Errorf("hash verification result: %w", err)
+	}
+
+	receiptResult := map[string]any{
+		"identity_ref":      identityRef,
+		"packet_hash":       packetHash,
+		"target":            route.SelectedTarget,
+		"verdict":           verdict,
+		"evidence_sha256":   evidenceHash,
+		"verification_hash": verificationHash,
+	}
+
 	receipt, err := metro.MakeSuccessReceipt(
 		packet,
 		route,
-		verification,
+		receiptResult,
 		"moltbook://verification/"+req.ActionID,
 	)
 	if err != nil {
 		return Result{}, fmt.Errorf("make receipt: %w", err)
 	}
 
-	if err := metro.Verify(packet, route, verification, receipt); err != nil {
+	if err := metro.Verify(packet, route, receiptResult, receipt); err != nil {
 		return Result{}, fmt.Errorf("verify receipt: %w", err)
 	}
 
 	return Result{
-		IdentityRef:  identityRef,
-		Packet:       packet,
-		Route:        route,
-		Verification: verification,
-		Receipt:      receipt,
+		IdentityRef:   identityRef,
+		PacketHash:    packetHash,
+		Packet:        packet,
+		Route:         route,
+		Verification:  verification,
+		ReceiptResult: receiptResult,
+		Receipt:       receipt,
 	}, nil
 }
 
@@ -171,4 +202,9 @@ func (s *Station) consume(actionID string) error {
 	}
 	s.consumed[actionID] = struct{}{}
 	return nil
+}
+
+func nonEmptyString(value any) (string, bool) {
+	s, ok := value.(string)
+	return s, ok && s != ""
 }
