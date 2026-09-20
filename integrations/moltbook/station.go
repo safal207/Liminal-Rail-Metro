@@ -36,11 +36,11 @@ type Request struct {
 }
 
 type Result struct {
-	IdentityRef string         `json:"identity_ref"`
-	Packet      metro.Packet   `json:"packet"`
-	Route       metro.Route    `json:"route"`
+	IdentityRef  string         `json:"identity_ref"`
+	Packet       metro.Packet   `json:"packet"`
+	Route        metro.Route    `json:"route"`
 	Verification map[string]any `json:"verification"`
-	Receipt     metro.Receipt  `json:"receipt"`
+	Receipt      metro.Receipt  `json:"receipt"`
 }
 
 type Station struct {
@@ -154,11 +154,11 @@ func (s *Station) Execute(req Request) (Result, error) {
 	}
 
 	return Result{
-		IdentityRef: identityRef,
-		Packet:      packet,
-		Route:       route,
+		IdentityRef:  identityRef,
+		Packet:       packet,
+		Route:        route,
 		Verification: verification,
-		Receipt:     receipt,
+		Receipt:      receipt,
 	}, nil
 }
 
