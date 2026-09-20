@@ -178,11 +178,7 @@ func (s *Station) Execute(req Request) (Result, error) {
 		return Result{}, fmt.Errorf("make receipt: %w", err)
 	}
 
-	if err := metro.Verify(packet, route, receiptResult, receipt); err != nil {
-		return Result{}, fmt.Errorf("verify receipt: %w", err)
-	}
-
-	return Result{
+	result := Result{
 		IdentityRef:   identityRef,
 		PacketHash:    packetHash,
 		Packet:        packet,
@@ -190,7 +186,75 @@ func (s *Station) Execute(req Request) (Result, error) {
 		Verification:  verification,
 		ReceiptResult: receiptResult,
 		Receipt:       receipt,
-	}, nil
+	}
+	if err := VerifyResult(result); err != nil {
+		return Result{}, fmt.Errorf("verify station result: %w", err)
+	}
+
+	return result, nil
+}
+
+// VerifyResult verifies the Moltbook-specific bindings before delegating the
+// underlying route/input/result receipt checks to Metro.
+func VerifyResult(result Result) error {
+	packetHash, err := metro.HashJSON(result.Packet)
+	if err != nil {
+		return fmt.Errorf("hash packet: %w", err)
+	}
+	if result.PacketHash != packetHash {
+		return errors.New("packet hash mismatch")
+	}
+
+	receiptPacketHash, ok := nonEmptyString(result.ReceiptResult["packet_hash"])
+	if !ok || receiptPacketHash != packetHash {
+		return errors.New("receipt packet hash mismatch")
+	}
+
+	packetIdentityRef, ok := nonEmptyString(result.Packet.Action.Inputs["identity_ref"])
+	if !ok {
+		return errors.New("packet identity_ref is missing")
+	}
+	if result.IdentityRef != packetIdentityRef {
+		return errors.New("result identity_ref mismatch")
+	}
+	receiptIdentityRef, ok := nonEmptyString(result.ReceiptResult["identity_ref"])
+	if !ok || receiptIdentityRef != packetIdentityRef {
+		return errors.New("receipt identity_ref mismatch")
+	}
+
+	receiptTarget, ok := nonEmptyString(result.ReceiptResult["target"])
+	if !ok || receiptTarget != result.Route.SelectedTarget {
+		return errors.New("receipt target mismatch")
+	}
+
+	verdict, ok := nonEmptyString(result.Verification["verdict"])
+	if !ok {
+		return errors.New("verification verdict is missing")
+	}
+	receiptVerdict, ok := nonEmptyString(result.ReceiptResult["verdict"])
+	if !ok || receiptVerdict != verdict {
+		return errors.New("receipt verdict mismatch")
+	}
+
+	evidenceHash, ok := nonEmptyString(result.Verification["evidence_sha256"])
+	if !ok {
+		return errors.New("verification evidence_sha256 is missing")
+	}
+	receiptEvidenceHash, ok := nonEmptyString(result.ReceiptResult["evidence_sha256"])
+	if !ok || receiptEvidenceHash != evidenceHash {
+		return errors.New("receipt evidence hash mismatch")
+	}
+
+	verificationHash, err := metro.HashJSON(result.Verification)
+	if err != nil {
+		return fmt.Errorf("hash verification result: %w", err)
+	}
+	receiptVerificationHash, ok := nonEmptyString(result.ReceiptResult["verification_hash"])
+	if !ok || receiptVerificationHash != verificationHash {
+		return errors.New("receipt verification hash mismatch")
+	}
+
+	return metro.Verify(result.Packet, result.Route, result.ReceiptResult, result.Receipt)
 }
 
 func (s *Station) consume(actionID string) error {
