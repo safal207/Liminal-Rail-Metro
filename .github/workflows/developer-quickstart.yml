@@ -1,5 +1,17 @@
 name: Developer Quickstart
 on:
+  push:
+    branches:
+      - 'feat/local-rest-quickstart-20260921'
+    paths:
+      - 'cmd/liminal-rail/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Dockerfile.quickstart*'
+      - 'compose.yaml'
+      - 'QUICKSTART.md'
+      - '.github/workflows/developer-quickstart.yml'
   pull_request:
     paths:
       - 'cmd/liminal-rail/**'
