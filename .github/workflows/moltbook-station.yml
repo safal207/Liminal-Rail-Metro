@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "integrations/moltbook/**"
+      - "cmd/moltbook-smoke/**"
       - "internal/metro/**"
       - "internal/decisionplane/**"
       - "go.mod"
@@ -30,7 +31,7 @@ jobs:
       - name: Require gofmt
         shell: bash
         run: |
-          unformatted="$(gofmt -l integrations/moltbook)"
+          unformatted="$(gofmt -l integrations/moltbook cmd/moltbook-smoke)"
           if [ -n "$unformatted" ]; then
             echo "$unformatted"
             exit 1
@@ -40,4 +41,9 @@ jobs:
         run: go test ./...
 
       - name: Run focused race checks
-        run: go test -race ./integrations/moltbook ./internal/decisionplane
+        run: go test -race ./integrations/moltbook ./internal/decisionplane ./cmd/moltbook-smoke
+
+      - name: Rehearse and verify sanitized report without live credentials
+        run: |
+          go run ./cmd/moltbook-smoke > "$RUNNER_TEMP/moltbook-rehearsal.json"
+          go run ./cmd/moltbook-smoke -verify-report "$RUNNER_TEMP/moltbook-rehearsal.json"

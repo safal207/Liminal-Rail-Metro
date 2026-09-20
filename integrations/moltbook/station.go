@@ -136,12 +136,19 @@ type Station struct {
 	identity  IdentityVerifier
 	evidence  EvidenceVerifier
 	authority AuthorityGate
+	target    string
 
 	mu       sync.Mutex
 	consumed map[string]struct{}
 }
 
 func NewStation(identity IdentityVerifier, evidence EvidenceVerifier, authority AuthorityGate) (*Station, error) {
+	return NewStationForTarget(identity, evidence, authority, TargetAgentProof)
+}
+
+// NewStationForTarget creates a Station bound to one explicit verifier target.
+// The default NewStation constructor remains pinned to TargetAgentProof.
+func NewStationForTarget(identity IdentityVerifier, evidence EvidenceVerifier, authority AuthorityGate, target string) (*Station, error) {
 	if identity == nil {
 		return nil, errors.New("identity verifier is required")
 	}
@@ -151,11 +158,15 @@ func NewStation(identity IdentityVerifier, evidence EvidenceVerifier, authority 
 	if authority == nil {
 		return nil, errors.New("authority gate is required")
 	}
+	if target == "" {
+		return nil, errors.New("station target is required")
+	}
 
 	return &Station{
 		identity:  identity,
 		evidence:  evidence,
 		authority: authority,
+		target:    target,
 		consumed:  make(map[string]struct{}),
 	}, nil
 }
@@ -170,7 +181,7 @@ func (s *Station) Execute(req Request) (Result, error) {
 	if req.Intent != IntentVerifyEvidence {
 		return Result{}, fmt.Errorf("unsupported intent %q", req.Intent)
 	}
-	if req.Target != TargetAgentProof {
+	if req.Target != s.target {
 		return Result{}, fmt.Errorf("target %q is not allowlisted", req.Target)
 	}
 	if req.ExternalEffects {
@@ -205,7 +216,7 @@ func (s *Station) Execute(req Request) (Result, error) {
 				"intent":       req.Intent,
 			},
 		},
-		[]string{TargetAgentProof},
+		[]string{s.target},
 	)
 	packet.Constraints.SideEffect = false
 
