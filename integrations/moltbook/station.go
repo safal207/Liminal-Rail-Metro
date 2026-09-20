@@ -14,8 +14,9 @@ const (
 	IntentVerifyEvidence = "VERIFY_EVIDENCE"
 	TargetAgentProof     = "agentproof"
 
-	DispositionAllow     = "ALLOW"
-	DispositionAutoRoute = decisionplane.DispositionAutoRoute
+	DispositionAllow         = "ALLOW"
+	DispositionAutoRoute     = decisionplane.DispositionAutoRoute
+	ExecutionStatusSucceeded = "SUCCEEDED"
 )
 
 type VerifiedIdentity struct {
@@ -260,6 +261,7 @@ func (s *Station) Execute(req Request) (Result, error) {
 		"verdict":           verdict,
 		"evidence_sha256":   evidenceHash,
 		"verification_hash": verificationHash,
+		"execution_status":  ExecutionStatusSucceeded,
 	}
 
 	receipt, err := metro.MakeSuccessReceipt(
@@ -270,6 +272,9 @@ func (s *Station) Execute(req Request) (Result, error) {
 	)
 	if err != nil {
 		return Result{}, fmt.Errorf("make receipt: %w", err)
+	}
+	if receipt.Status != ExecutionStatusSucceeded {
+		return Result{}, fmt.Errorf("unexpected receipt execution status %q", receipt.Status)
 	}
 
 	result := Result{
@@ -388,6 +393,17 @@ func VerifyResult(result Result) error {
 	receiptTarget, ok := nonEmptyString(result.ReceiptResult["target"])
 	if !ok || receiptTarget != result.Route.SelectedTarget {
 		return errors.New("receipt target mismatch")
+	}
+
+	executionStatus, ok := nonEmptyString(result.ReceiptResult["execution_status"])
+	if !ok {
+		return errors.New("receipt execution_status is missing")
+	}
+	if executionStatus != result.Receipt.Status {
+		return errors.New("receipt execution status mismatch")
+	}
+	if executionStatus != ExecutionStatusSucceeded {
+		return fmt.Errorf("receipt execution status %q is not successful", executionStatus)
 	}
 
 	verdict, ok := nonEmptyString(result.Verification["verdict"])
