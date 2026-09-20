@@ -60,11 +60,18 @@ func TestOfflineRehearsalNeverUsesNetworkOrCredentials(t *testing.T) {
 		t.Fatalf("rehearsal failed: %s %s", &out, &stderr)
 	}
 	r := decodeReport(t, &out)
-	if r.Mode != "offline_rehearsal" || r.LiveIdentityVerified || r.IdentityAttempts != 1 || r.AuthorityCalls != 1 || r.EvidenceCalls != 1 {
+	if r.Mode != "offline_rehearsal" || r.LiveIdentityVerified ||
+		r.IdentityProvenance != identityProvenanceSynthetic ||
+		r.IdentityStatus != "" || r.IdentityVerifiedAt != "" ||
+		r.VerificationSource != syntheticIdentitySource ||
+		r.IdentityAttempts != 1 || r.AuthorityCalls != 1 || r.EvidenceCalls != 1 {
 		t.Fatalf("unexpected rehearsal metadata: %+v", r)
 	}
 	if r.StationResult == nil || moltbook.VerifyResult(*r.StationResult) != nil {
 		t.Fatal("rehearsal did not produce a valid bound receipt")
+	}
+	if r.StationResult.Route.SelectedTarget != smokeTarget || r.StationResult.Receipt.ExecutorID != smokeTarget {
+		t.Fatalf("offline receipt target/executor = %q/%q, want %q", r.StationResult.Route.SelectedTarget, r.StationResult.Receipt.ExecutorID, smokeTarget)
 	}
 }
 
@@ -140,9 +147,15 @@ func TestLiveIdentityBoundaryAndRedaction(t *testing.T) {
 			if (code == 0) != verified || r.IdentityStatus != tc.want || r.LiveIdentityVerified != verified || r.IdentityAttempts != 1 || calls != 1 {
 				t.Fatalf("unexpected boundary outcome: exit=%d, report=%+v, requests=%d", code, r, calls)
 			}
+			if r.IdentityProvenance != identityProvenanceMoltbook {
+				t.Fatalf("live identity provenance = %q", r.IdentityProvenance)
+			}
 			if verified {
 				if r.AuthorityCalls != 1 || r.EvidenceCalls != 1 || r.StationResult == nil || moltbook.VerifyResult(*r.StationResult) != nil {
 					t.Fatal("verified identity did not complete the bound local fixture path")
+				}
+				if r.StationResult.Route.SelectedTarget != smokeTarget || r.StationResult.Receipt.ExecutorID != smokeTarget {
+					t.Fatalf("live receipt target/executor = %q/%q, want %q", r.StationResult.Route.SelectedTarget, r.StationResult.Receipt.ExecutorID, smokeTarget)
 				}
 			} else if r.AuthorityCalls != 0 || r.EvidenceCalls != 0 || r.StationResult != nil {
 				t.Fatal("unverified identity reached authority or evidence dispatch")
@@ -172,7 +185,9 @@ func TestSavedReportVerificationAndTamperRejection(t *testing.T) {
 		{"receipt hash", func(r *report) { r.ReceiptSHA256 = "tampered" }},
 		{"mode contradiction", func(r *report) { r.LiveIdentityVerified = true }},
 		{"unknown mode", func(r *report) { r.Mode = "unrecognized" }},
-		{"claim rejected identity", func(r *report) { r.IdentityStatus = moltbook.IdentityStatusInvalid }},
+		{"forged live status", func(r *report) { r.IdentityStatus = moltbook.IdentityStatusVerified }},
+		{"forged verified_at", func(r *report) { r.IdentityVerifiedAt = "2026-09-20T00:00:00Z" }},
+		{"wrong identity provenance", func(r *report) { r.IdentityProvenance = identityProvenanceMoltbook }},
 		{"extra dispatch", func(r *report) { r.EvidenceCalls = 2 }},
 		{"missing source", func(r *report) { r.VerificationSource = "" }},
 		{"failure status", func(r *report) { r.Status = "FAIL" }},
@@ -219,7 +234,7 @@ func TestControlFixtureIntegrityAndAuthorityScope(t *testing.T) {
 	}
 	for _, field := range []string{"evidence", "side effects", "target", "intent"} {
 		t.Run(field, func(t *testing.T) {
-			packet := metro.NewPacket("test", "test", "test", metro.Action{Kind: "moltbook.verify_evidence", Inputs: map[string]any{"intent": moltbook.IntentVerifyEvidence, "evidence_ref": controlFixtureRef}}, []string{moltbook.TargetAgentProof})
+			packet := metro.NewPacket("test", "test", "test", metro.Action{Kind: "moltbook.verify_evidence", Inputs: map[string]any{"intent": moltbook.IntentVerifyEvidence, "evidence_ref": controlFixtureRef}}, []string{smokeTarget})
 			switch field {
 			case "evidence":
 				packet.Action.Inputs["evidence_ref"] = "other"
@@ -234,7 +249,7 @@ func TestControlFixtureIntegrityAndAuthorityScope(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := authority.Authorize(context.Background(), packet, moltbook.TargetAgentProof); err == nil {
+			if _, err := authority.Authorize(context.Background(), packet, smokeTarget); err == nil {
 				t.Fatal("out-of-scope packet was authorized")
 			}
 		})
