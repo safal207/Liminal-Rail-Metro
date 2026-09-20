@@ -1,0 +1,132 @@
+name: SWE-agent Adapter v0.1
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  swe-agent-proof:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Liminal Rail Metro
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+
+      - name: Require gofmt
+        run: |
+          unformatted="$(gofmt -l internal/sweadapter cmd/metro-swe)"
+          if [ -n "$unformatted" ]; then
+            echo "Go files require gofmt:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: go test ./internal/sweadapter ./cmd/metro-swe
+
+      - name: Build adapter and contract fixture
+        run: |
+          rm -rf proof-package
+          mkdir -p proof-package/fixture
+          go build -o proof-package/metro-swe ./cmd/metro-swe
+
+          cat > proof-package/fixture/candidate.patch <<'PATCH'
+          diff --git a/example.py b/example.py
+          --- a/example.py
+          +++ b/example.py
+          @@ -1 +1 @@
+          -old = True
+          +old = False
+          PATCH
+
+          printf '%s\n' '{"trajectory":"contract-fixture","steps":3}' > proof-package/fixture/run.traj
+          printf '%s\n' 'model: contract-fixture' > proof-package/fixture/config.yaml
+          printf '%s\n' '{"container":"contract-fixture","network":"disabled"}' > proof-package/fixture/environment.json
+          printf '%s\n' '{"command":"pytest -q","exit_code":0,"result":"PASS"}' > proof-package/fixture/evaluation.json
+
+          proof-package/metro-swe pack \
+            -issue https://github.com/SWE-agent/SWE-agent/issues/1524 \
+            -repo SWE-agent/SWE-agent \
+            -run issue-1524-contract-fixture \
+            -base 3ea751c087f32b16e039a2233dd6eefecef325d5 \
+            -head 1111111111111111111111111111111111111111 \
+            -patch proof-package/fixture/candidate.patch \
+            -trajectory proof-package/fixture/run.traj \
+            -config proof-package/fixture/config.yaml \
+            -environment proof-package/fixture/environment.json \
+            -evaluation proof-package/fixture/evaluation.json \
+            -model-calls 7 \
+            -input-tokens 9000 \
+            -output-tokens 1200 \
+            -cost-usd 0.42 \
+            -wall-ms 42000 \
+            -first-evidence-ms 7000 \
+            -tool-calls 11 \
+            -context-bytes 64000 \
+            -termination submitted \
+            -limitations 'contract fixture;not a live SWE-agent execution' \
+            -out proof-package/contribution_receipt.json \
+            | tee proof-package/pack.txt
+
+      - name: Verify exact candidate and bind read-only review
+        run: |
+          common='-head 1111111111111111111111111111111111111111 -patch proof-package/fixture/candidate.patch -trajectory proof-package/fixture/run.traj -config proof-package/fixture/config.yaml -environment proof-package/fixture/environment.json -evaluation proof-package/fixture/evaluation.json'
+
+          proof-package/metro-swe verify \
+            -receipt proof-package/contribution_receipt.json \
+            $common | tee proof-package/verification.txt
+          grep -q 'VERDICT: EXACT_CANDIDATE' proof-package/verification.txt
+
+          printf '%s\n' 'Contract-fixture reviewer checked the exact bound candidate.' > proof-package/fixture/review.txt
+          proof-package/metro-swe review \
+            -receipt proof-package/contribution_receipt.json \
+            $common \
+            -reviewer contract-fixture-reviewer \
+            -verdict approve \
+            -evidence proof-package/fixture/review.txt \
+            -out proof-package/review_receipt.json \
+            | tee proof-package/review.txt
+
+      - name: Prove changed candidate becomes stale
+        run: |
+          cp proof-package/fixture/candidate.patch proof-package/fixture/candidate.stale.patch
+          printf '%s\n' '# post-receipt mutation' >> proof-package/fixture/candidate.stale.patch
+
+          if proof-package/metro-swe verify \
+            -receipt proof-package/contribution_receipt.json \
+            -head 1111111111111111111111111111111111111111 \
+            -patch proof-package/fixture/candidate.stale.patch \
+            -trajectory proof-package/fixture/run.traj \
+            -config proof-package/fixture/config.yaml \
+            -environment proof-package/fixture/environment.json \
+            -evaluation proof-package/fixture/evaluation.json \
+            > proof-package/stale.txt 2>&1; then
+              echo 'mutated candidate unexpectedly verified' >&2
+              exit 1
+          fi
+          grep -q 'VERDICT: STALE_CANDIDATE' proof-package/stale.txt
+
+      - name: Hash and upload proof package
+        run: |
+          sha256sum \
+            proof-package/contribution_receipt.json \
+            proof-package/review_receipt.json \
+            proof-package/metro-swe \
+            > proof-package/SHA256SUMS
+          cat proof-package/verification.txt
+          cat proof-package/stale.txt
+
+      - name: Upload adapter proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: metro-swe-agent-adapter-v0.1
+          path: proof-package/
+          if-no-files-found: error
