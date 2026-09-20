@@ -63,11 +63,11 @@ func TestMoltbookIdentityVerificationClassifiesInvalidVsUnknown(t *testing.T) {
 			wantStatus: IdentityStatusInvalid,
 		},
 		{
-			name:       "provider unsuccessful",
+			name:       "provider unsuccessful is unknown",
 			statusCode: http.StatusOK,
 			body:       "{\"success\":false,\"valid\":true,\"agent\":{\"id\":\"agent-123\"}}",
 			token:      "identity-token",
-			wantStatus: IdentityStatusInvalid,
+			wantStatus: IdentityStatusUnknownOrHold,
 		},
 		{
 			name:       "empty token",
