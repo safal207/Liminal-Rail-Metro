@@ -24,7 +24,7 @@ const (
 	smokeReportSchema            = "moltbook.smoke.v0.2"
 	identityProvenanceSynthetic = "synthetic_local_rehearsal"
 	identityProvenanceMoltbook  = "moltbook_live_verification"
-	syntheticIdentitySource      = "local://moltbook-smoke/rehearsal"
+	syntheticIdentitySource     = "local://moltbook-smoke/rehearsal"
 )
 
 type revision struct {
