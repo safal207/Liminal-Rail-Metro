@@ -9,7 +9,10 @@ import (
 	"github.com/safal207/Liminal-Rail-Metro/internal/metro"
 )
 
-const controlFixtureRef = "fixture://moltbook-smoke/metro-receipt-v1"
+const (
+	controlFixtureRef = "fixture://moltbook-smoke/metro-receipt-v1"
+	smokeTarget       = "local-control-fixture"
+)
 
 type controlFixture struct {
 	Packet  metro.Packet   `json:"packet"`
@@ -79,7 +82,7 @@ func (a *smokeAuthority) Authorize(ctx context.Context, packet metro.Packet, tar
 }
 
 func allowedSmokePacket(packet metro.Packet, target string) bool {
-	return target == moltbook.TargetAgentProof && !packet.Constraints.SideEffect && packet.Action.Kind == "moltbook.verify_evidence" &&
+	return target == smokeTarget && !packet.Constraints.SideEffect && packet.Action.Kind == "moltbook.verify_evidence" &&
 		len(packet.AllowedTargets) == 1 && packet.AllowedTargets[0] == target &&
 		packet.Action.Inputs["intent"] == moltbook.IntentVerifyEvidence && packet.Action.Inputs["evidence_ref"] == controlFixtureRef
 }
