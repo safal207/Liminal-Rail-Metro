@@ -5,6 +5,7 @@ on:
     paths:
       - "integrations/moltbook/**"
       - "internal/metro/**"
+      - "internal/decisionplane/**"
       - "go.mod"
       - "go.sum"
       - ".github/workflows/moltbook-station.yml"
@@ -26,5 +27,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Require gofmt
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l integrations/moltbook)"
+          if [ -n "$unformatted" ]; then
+            echo "$unformatted"
+            exit 1
+          fi
+
       - name: Run full Go test suite
         run: go test ./...
+
+      - name: Run focused race checks
+        run: go test -race ./integrations/moltbook ./internal/decisionplane
