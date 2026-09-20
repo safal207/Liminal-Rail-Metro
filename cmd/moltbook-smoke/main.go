@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	smokeReportSchema            = "moltbook.smoke.v0.2"
+	smokeReportSchema           = "moltbook.smoke.v0.2"
 	identityProvenanceSynthetic = "synthetic_local_rehearsal"
 	identityProvenanceMoltbook  = "moltbook_live_verification"
 	syntheticIdentitySource     = "local://moltbook-smoke/rehearsal"
@@ -84,7 +84,7 @@ func run(args []string, stdout, stderr io.Writer, getenv func(string) string, cl
 		Revision: rev, ObservedAt: metro.NowISO(),
 		IdentityProvenance: identityProvenanceSynthetic,
 		VerificationSource: syntheticIdentitySource,
-		EvidenceBackend: "metro.Verify/local-control-fixture",
+		EvidenceBackend:    "metro.Verify/local-control-fixture",
 	}
 	fail := func(status, code string) int {
 		r.Status, r.FailureCode = status, code
