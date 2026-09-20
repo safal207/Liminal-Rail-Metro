@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -74,10 +76,10 @@ type moltbookIdentityRequest struct {
 }
 
 type moltbookIdentityResponse struct {
-	Success bool `json:"success"`
-	Valid   bool `json:"valid"`
+	Success *bool `json:"success"`
+	Valid   *bool `json:"valid"`
 	Agent   struct {
-		ID string `json:"id"`
+		ID json.RawMessage `json:"id"`
 	} `json:"agent"`
 }
 
@@ -231,7 +233,7 @@ func (v *MoltbookIdentityVerifier) VerifyIdentityResultContext(ctx context.Conte
 	}
 
 	var decoded moltbookIdentityResponse
-	if err := json.Unmarshal(payload, &decoded); err != nil {
+	if err := json.Unmarshal(payload, &decoded); err != nil || !utf8.Valid(payload) {
 		return base, newIdentityVerificationError(
 			IdentityStatusUnknownOrHold,
 			"malformed_response",
@@ -239,15 +241,8 @@ func (v *MoltbookIdentityVerifier) VerifyIdentityResultContext(ctx context.Conte
 			nil,
 		)
 	}
-	if !decoded.Success {
-		return base, newIdentityVerificationError(
-			IdentityStatusUnknownOrHold,
-			"provider_unsuccessful",
-			"Moltbook identity provider did not complete verification",
-			nil,
-		)
-	}
-	if !decoded.Valid {
+	// Only an explicit rejection is INVALID; absent/null fields are not false.
+	if decoded.Valid != nil && !*decoded.Valid {
 		invalid := base
 		invalid.Status = IdentityStatusInvalid
 		return invalid, newIdentityVerificationError(
@@ -257,16 +252,87 @@ func (v *MoltbookIdentityVerifier) VerifyIdentityResultContext(ctx context.Conte
 			nil,
 		)
 	}
+	if decoded.Success == nil || !*decoded.Success {
+		return base, newIdentityVerificationError(
+			IdentityStatusUnknownOrHold,
+			"provider_unsuccessful",
+			"Moltbook identity provider did not complete verification",
+			nil,
+		)
+	}
+	if decoded.Valid == nil {
+		return base, newIdentityVerificationError(
+			IdentityStatusUnknownOrHold,
+			"missing_verification_result",
+			"Moltbook identity provider did not report identity validity",
+			nil,
+		)
+	}
 
-	if err := validateMoltbookAgentID(decoded.Agent.ID); err != nil {
+	agentID, err := decodeMoltbookAgentID(decoded.Agent.ID)
+	if err != nil {
+		return base, err
+	}
+	if err := validateMoltbookAgentID(agentID); err != nil {
 		return base, err
 	}
 
 	verified := base
-	verified.AgentID = decoded.Agent.ID
+	verified.AgentID = agentID
 	verified.Status = IdentityStatusVerified
 	verified.VerifiedAt = v.now().UTC().Format(time.RFC3339Nano)
 	return verified, nil
+}
+
+func decodeMoltbookAgentID(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return "", nil // The existing ID boundary reports a missing ID.
+	}
+	malformed := func() (string, error) {
+		return "", newIdentityVerificationError(
+			IdentityStatusUnknownOrHold,
+			"malformed_agent_id",
+			"Moltbook identity response contains invalid agent id encoding",
+			nil,
+		)
+	}
+	if !utf8.Valid(raw) || !json.Valid(raw) || raw[0] != '"' {
+		return malformed()
+	}
+
+	// encoding/json repairs invalid Unicode. Validate the original string first,
+	// consuming escaped backslashes so literal \\u text is never a Unicode escape.
+	for i := 1; i < len(raw)-1; i++ {
+		if raw[i] != '\\' {
+			continue
+		}
+		i++
+		if raw[i] != 'u' {
+			continue
+		}
+		// json.Valid guarantees four hexadecimal digits for each Unicode escape.
+		code, _ := strconv.ParseUint(string(raw[i+1:i+5]), 16, 16)
+		i += 4
+		switch {
+		case code >= 0xD800 && code <= 0xDBFF:
+			if i+6 >= len(raw) || raw[i+1] != '\\' || raw[i+2] != 'u' {
+				return malformed()
+			}
+			low, err := strconv.ParseUint(string(raw[i+3:i+7]), 16, 16)
+			if err != nil || low < 0xDC00 || low > 0xDFFF {
+				return malformed()
+			}
+			i += 6
+		case code >= 0xDC00 && code <= 0xDFFF:
+			return malformed()
+		}
+	}
+
+	var agentID string
+	if err := json.Unmarshal(raw, &agentID); err != nil {
+		return malformed()
+	}
+	return agentID, nil
 }
 
 func validateMoltbookAgentID(agentID string) error {

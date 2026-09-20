@@ -35,6 +35,11 @@ contract, such as an empty token or a provider response with `valid=false`.
 A bare `success=false` is **not** interpreted as INVALID because the public
 provider contract does not define that field as an identity-rejection signal.
 
+In a well-formed response, explicit `valid=false` takes precedence even when
+`success` is false, absent, or null. Missing or null boolean fields are not
+treated as false. Verification requires both `success=true` and `valid=true`;
+otherwise, without an explicit rejection, the result is UNKNOWN/HOLD.
+
 ### UNKNOWN_OR_HOLD
 
 Used when verification cannot be established reliably, including:
@@ -70,7 +75,13 @@ Local boundary checks reject:
 - an empty ID;
 - leading or trailing whitespace;
 - control characters;
+- invalid UTF-8 or unpaired UTF-16 surrogate escapes in the raw JSON ID;
 - IDs longer than 256 bytes.
+
+The raw JSON ID is checked before decoding so the JSON decoder cannot silently
+replace malformed Unicode with U+FFFD. Valid surrogate pairs and intentionally
+supplied U+FFFD are preserved, as are literal backslash sequences. The byte limit
+applies to the decoded ID, not its JSON escape spelling.
 
 The adapter does not lowercase or Unicode-normalize IDs and does not invent a
 provider grammar.
