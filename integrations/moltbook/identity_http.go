@@ -151,7 +151,9 @@ func (v *MoltbookIdentityVerifier) VerifyIdentityResultContext(ctx context.Conte
 
 	token = strings.TrimSpace(token)
 	if token == "" {
-		return base, newIdentityVerificationError(
+		invalid := base
+		invalid.Status = IdentityStatusInvalid
+		return invalid, newIdentityVerificationError(
 			IdentityStatusInvalid,
 			"empty_token",
 			"Moltbook identity token is required",
