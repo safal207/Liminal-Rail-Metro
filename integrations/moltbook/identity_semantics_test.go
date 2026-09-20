@@ -232,3 +232,90 @@ func TestUnknownIdentityVerificationNeverReachesAuthorityOrEvidence(t *testing.T
 		t.Fatalf("evidence calls = %d, want 0", evidence.calls)
 	}
 }
+
+func TestMoltbookUnknownClassificationForReadFailures(t *testing.T) {
+	t.Run("transport failure", func(t *testing.T) {
+		client := &http.Client{
+			Timeout: time.Second,
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return nil, errors.New("network unavailable")
+			}),
+		}
+		verifier, err := NewMoltbookIdentityVerifier("moltdev_test", client)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := verifier.VerifyIdentityResultContext(context.Background(), "identity-token")
+		assertUnknownIdentityFailure(t, result, err)
+	})
+
+	t.Run("context cancellation", func(t *testing.T) {
+		client := &http.Client{
+			Timeout: time.Second,
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				<-req.Context().Done()
+				return nil, req.Context().Err()
+			}),
+		}
+		verifier, err := NewMoltbookIdentityVerifier("moltdev_test", client)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		result, err := verifier.VerifyIdentityResultContext(ctx, "identity-token")
+		assertUnknownIdentityFailure(t, result, err)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled, got %v", err)
+		}
+	})
+
+	t.Run("redirect", func(t *testing.T) {
+		client := &http.Client{
+			Timeout: time.Second,
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				resp := jsonResponse(req, http.StatusFound, "{}")
+				resp.Header.Set("Location", "https://evil.example/steal")
+				return resp, nil
+			}),
+		}
+		verifier, err := NewMoltbookIdentityVerifier("moltdev_test", client)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := verifier.VerifyIdentityResultContext(context.Background(), "identity-token")
+		assertUnknownIdentityFailure(t, result, err)
+	})
+
+	t.Run("oversized response", func(t *testing.T) {
+		client := &http.Client{
+			Timeout: time.Second,
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return jsonResponse(req, http.StatusOK, strings.Repeat("x", moltbookIdentityResponseLimit+1)), nil
+			}),
+		}
+		verifier, err := NewMoltbookIdentityVerifier("moltdev_test", client)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := verifier.VerifyIdentityResultContext(context.Background(), "identity-token")
+		assertUnknownIdentityFailure(t, result, err)
+	})
+}
+
+func assertUnknownIdentityFailure(t *testing.T, result IdentityVerificationResult, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected UNKNOWN/HOLD failure, got result %#v", result)
+	}
+	status, ok := IdentityVerificationStatusOf(err)
+	if !ok || status != IdentityStatusUnknownOrHold {
+		t.Fatalf("classified status = %q ok=%v, want UNKNOWN/HOLD; err=%v", status, ok, err)
+	}
+	if result.Status != IdentityStatusUnknownOrHold {
+		t.Fatalf("result status = %q, want UNKNOWN/HOLD", result.Status)
+	}
+	if result.AgentID != "" || result.VerifiedAt != "" {
+		t.Fatalf("UNKNOWN/HOLD leaked verified identity fields: %#v", result)
+	}
+}
