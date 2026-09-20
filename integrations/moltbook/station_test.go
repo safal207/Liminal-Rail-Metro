@@ -122,8 +122,8 @@ func TestExecuteBindsVerifiedIdentityPacketAndVerdictToReceipt(t *testing.T) {
 	if out.Receipt.ExecutorID != TargetAgentProof {
 		t.Fatalf("executor = %q, want %q", out.Receipt.ExecutorID, TargetAgentProof)
 	}
-	if err := metro.Verify(out.Packet, out.Route, out.ReceiptResult, out.Receipt); err != nil {
-		t.Fatalf("receipt verification failed: %v", err)
+	if err := VerifyResult(out); err != nil {
+		t.Fatalf("station result verification failed: %v", err)
 	}
 }
 
@@ -283,27 +283,67 @@ func TestVerificationMustExposeVerdictAndEvidenceHash(t *testing.T) {
 	}
 }
 
-func TestIdentityPacketMismatchBreaksReceiptVerification(t *testing.T) {
+func TestIdentityPacketMismatchBreaksStationVerification(t *testing.T) {
 	station, _, _ := newTestStation(t)
 	out, err := station.Execute(validRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	tampered := out.Packet
 	inputs := make(map[string]any, len(out.Packet.Action.Inputs))
 	for k, v := range out.Packet.Action.Inputs {
 		inputs[k] = v
 	}
 	inputs["identity_ref"] = "tampered-identity"
-	tampered.Action.Inputs = inputs
+	out.Packet.Action.Inputs = inputs
 
-	if err := metro.Verify(tampered, out.Route, out.ReceiptResult, out.Receipt); err == nil {
-		t.Fatal("expected identity/packet tampering to break receipt verification")
+	if err := VerifyResult(out); err == nil {
+		t.Fatal("expected identity/packet tampering to break station verification")
 	}
 }
 
-func TestPacketHashBindingBreaksOnTamper(t *testing.T) {
+func TestFullPacketTamperFailsStationVerification(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Result)
+	}{
+		{
+			name: "source agent",
+			mutate: func(out *Result) {
+				out.Packet.SourceAgent = "moltbook:tampered"
+			},
+		},
+		{
+			name: "side effect constraint",
+			mutate: func(out *Result) {
+				out.Packet.Constraints.SideEffect = true
+			},
+		},
+		{
+			name: "allowed targets",
+			mutate: func(out *Result) {
+				out.Packet.AllowedTargets = []string{TargetAgentProof, "unexpected-target"}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			station, _, _ := newTestStation(t)
+			out, err := station.Execute(validRequest())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			tt.mutate(&out)
+			if err := VerifyResult(out); err == nil || !strings.Contains(err.Error(), "packet hash mismatch") {
+				t.Fatalf("expected packet hash mismatch, got %v", err)
+			}
+		})
+	}
+}
+
+func TestPacketHashBindingBreaksOnReceiptTamper(t *testing.T) {
 	station, _, _ := newTestStation(t)
 	out, err := station.Execute(validRequest())
 	if err != nil {
@@ -315,9 +355,10 @@ func TestPacketHashBindingBreaksOnTamper(t *testing.T) {
 		tampered[k] = v
 	}
 	tampered["packet_hash"] = "tampered-packet-hash"
+	out.ReceiptResult = tampered
 
-	if err := metro.Verify(out.Packet, out.Route, tampered, out.Receipt); err == nil {
-		t.Fatal("expected packet-hash tampering to break receipt verification")
+	if err := VerifyResult(out); err == nil {
+		t.Fatal("expected receipt packet-hash tampering to break station verification")
 	}
 }
 
@@ -328,10 +369,9 @@ func TestMissingReceiptBindingFailsVerification(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	receipt := out.Receipt
-	receipt.InputHash = ""
+	out.Receipt.InputHash = ""
 
-	if err := metro.Verify(out.Packet, out.Route, out.ReceiptResult, receipt); err == nil {
-		t.Fatal("expected missing input hash to fail receipt verification")
+	if err := VerifyResult(out); err == nil {
+		t.Fatal("expected missing input hash to fail station verification")
 	}
 }
