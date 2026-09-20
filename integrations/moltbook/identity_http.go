@@ -10,17 +10,63 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const (
 	moltbookVerifyIdentityURL      = "https://www.moltbook.com/api/v1/agents/verify-identity"
 	moltbookIdentityResponseLimit  = 256 * 1024
 	moltbookIdentityDefaultTimeout = 5 * time.Second
+	moltbookAgentIDMaxBytes        = 256
+
+	IdentityStatusVerified      IdentityVerificationStatus = "VERIFIED"
+	IdentityStatusInvalid       IdentityVerificationStatus = "INVALID"
+	IdentityStatusUnknownOrHold IdentityVerificationStatus = "UNKNOWN_OR_HOLD"
 )
+
+type IdentityVerificationStatus string
+
+type IdentityVerificationResult struct {
+	Provider           string                     `json:"provider"`
+	AgentID            string                     `json:"agent_id,omitempty"`
+	Status             IdentityVerificationStatus `json:"status"`
+	VerifiedAt         string                     `json:"verified_at,omitempty"`
+	VerificationSource string                     `json:"verification_source"`
+}
+
+type IdentityVerificationError struct {
+	Status  IdentityVerificationStatus
+	Code    string
+	Message string
+	Cause   error
+}
+
+func (e *IdentityVerificationError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.Message
+}
+
+func (e *IdentityVerificationError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+func IdentityVerificationStatusOf(err error) (IdentityVerificationStatus, bool) {
+	var target *IdentityVerificationError
+	if !errors.As(err, &target) {
+		return "", false
+	}
+	return target.Status, true
+}
 
 type MoltbookIdentityVerifier struct {
 	appKey string
 	client *http.Client
+	now    func() time.Time
 }
 
 type moltbookIdentityRequest struct {
@@ -60,6 +106,7 @@ func NewMoltbookIdentityVerifier(appKey string, client *http.Client) (*MoltbookI
 	return &MoltbookIdentityVerifier{
 		appKey: appKey,
 		client: configured,
+		now:    time.Now,
 	}, nil
 }
 
@@ -68,23 +115,68 @@ func (v *MoltbookIdentityVerifier) VerifyIdentity(token string) (VerifiedIdentit
 }
 
 func (v *MoltbookIdentityVerifier) VerifyIdentityContext(ctx context.Context, token string) (VerifiedIdentity, error) {
-	if v == nil || v.client == nil || strings.TrimSpace(v.appKey) == "" {
-		return VerifiedIdentity{}, errors.New("Moltbook identity verifier is not configured")
+	result, err := v.VerifyIdentityResultContext(ctx, token)
+	if err != nil {
+		return VerifiedIdentity{}, err
+	}
+	if result.Status != IdentityStatusVerified || result.AgentID == "" {
+		return VerifiedIdentity{}, newIdentityVerificationError(
+			IdentityStatusUnknownOrHold,
+			"unexpected_result_state",
+			"Moltbook identity verification did not produce a verified identity",
+			nil,
+		)
+	}
+	return VerifiedIdentity{
+		AgentID:  result.AgentID,
+		Verified: true,
+	}, nil
+}
+
+func (v *MoltbookIdentityVerifier) VerifyIdentityResultContext(ctx context.Context, token string) (IdentityVerificationResult, error) {
+	base := IdentityVerificationResult{
+		Provider:           "moltbook",
+		Status:             IdentityStatusUnknownOrHold,
+		VerificationSource: moltbookVerifyIdentityURL,
+	}
+
+	if v == nil || v.client == nil || strings.TrimSpace(v.appKey) == "" || v.now == nil {
+		return base, newIdentityVerificationError(
+			IdentityStatusUnknownOrHold,
+			"not_configured",
+			"Moltbook identity verifier is not configured",
+			nil,
+		)
 	}
 
 	token = strings.TrimSpace(token)
 	if token == "" {
-		return VerifiedIdentity{}, errors.New("Moltbook identity token is required")
+		return base, newIdentityVerificationError(
+			IdentityStatusInvalid,
+			"empty_token",
+			"Moltbook identity token is required",
+			nil,
+		)
 	}
 
 	body, err := json.Marshal(moltbookIdentityRequest{Token: token})
 	if err != nil {
-		return VerifiedIdentity{}, errors.New("encode Moltbook identity request")
+		return base, newIdentityVerificationError(
+			IdentityStatusUnknownOrHold,
+			"request_encode_failed",
+			"encode Moltbook identity request",
+			nil,
+		)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, moltbookVerifyIdentityURL, bytes.NewReader(body))
 	if err != nil {
-		return VerifiedIdentity{}, errors.New("build Moltbook identity request")
+		return base, newIdentityVerificationError(
+			IdentityStatusUnknownOrHold,
+			"request_build_failed",
+			"build Moltbook identity request",
+			nil,
+		)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -93,39 +185,128 @@ func (v *MoltbookIdentityVerifier) VerifyIdentityContext(ctx context.Context, to
 	resp, err := v.client.Do(req)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return VerifiedIdentity{}, fmt.Errorf("Moltbook identity verification canceled: %w", ctxErr)
+			return base, newIdentityVerificationError(
+				IdentityStatusUnknownOrHold,
+				"context_canceled",
+				"Moltbook identity verification canceled",
+				ctxErr,
+			)
 		}
-		return VerifiedIdentity{}, errors.New("Moltbook identity verification request failed")
+		return base, newIdentityVerificationError(
+			IdentityStatusUnknownOrHold,
+			"transport_failed",
+			"Moltbook identity verification request failed",
+			nil,
+		)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return VerifiedIdentity{}, fmt.Errorf("Moltbook identity verification returned HTTP %d", resp.StatusCode)
+		return base, newIdentityVerificationError(
+			IdentityStatusUnknownOrHold,
+			"non_success_http",
+			fmt.Sprintf("Moltbook identity verification returned HTTP %d", resp.StatusCode),
+			nil,
+		)
 	}
 
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, moltbookIdentityResponseLimit+1))
 	if err != nil {
-		return VerifiedIdentity{}, errors.New("read Moltbook identity verification response")
+		return base, newIdentityVerificationError(
+			IdentityStatusUnknownOrHold,
+			"response_read_failed",
+			"read Moltbook identity verification response",
+			nil,
+		)
 	}
 	if len(payload) > moltbookIdentityResponseLimit {
-		return VerifiedIdentity{}, errors.New("Moltbook identity verification response exceeds limit")
+		return base, newIdentityVerificationError(
+			IdentityStatusUnknownOrHold,
+			"response_too_large",
+			"Moltbook identity verification response exceeds limit",
+			nil,
+		)
 	}
 
 	var decoded moltbookIdentityResponse
 	if err := json.Unmarshal(payload, &decoded); err != nil {
-		return VerifiedIdentity{}, errors.New("Moltbook identity verification returned invalid JSON")
+		return base, newIdentityVerificationError(
+			IdentityStatusUnknownOrHold,
+			"malformed_response",
+			"Moltbook identity verification returned invalid JSON",
+			nil,
+		)
 	}
 	if !decoded.Success || !decoded.Valid {
-		return VerifiedIdentity{}, errors.New("Moltbook identity token is invalid")
+		invalid := base
+		invalid.Status = IdentityStatusInvalid
+		return invalid, newIdentityVerificationError(
+			IdentityStatusInvalid,
+			"provider_rejected_identity",
+			"Moltbook identity token is invalid",
+			nil,
+		)
 	}
 
-	agentID := strings.TrimSpace(decoded.Agent.ID)
+	if err := validateMoltbookAgentID(decoded.Agent.ID); err != nil {
+		return base, err
+	}
+
+	verified := base
+	verified.AgentID = decoded.Agent.ID
+	verified.Status = IdentityStatusVerified
+	verified.VerifiedAt = v.now().UTC().Format(time.RFC3339Nano)
+	return verified, nil
+}
+
+func validateMoltbookAgentID(agentID string) error {
 	if agentID == "" {
-		return VerifiedIdentity{}, errors.New("Moltbook identity response is missing agent id")
+		return newIdentityVerificationError(
+			IdentityStatusUnknownOrHold,
+			"missing_agent_id",
+			"Moltbook identity response is missing agent id",
+			nil,
+		)
 	}
+	if strings.TrimSpace(agentID) != agentID {
+		return newIdentityVerificationError(
+			IdentityStatusUnknownOrHold,
+			"non_canonical_agent_id",
+			"Moltbook identity response contains surrounding whitespace in agent id",
+			nil,
+		)
+	}
+	if len(agentID) > moltbookAgentIDMaxBytes {
+		return newIdentityVerificationError(
+			IdentityStatusUnknownOrHold,
+			"agent_id_too_long",
+			"Moltbook identity response agent id exceeds limit",
+			nil,
+		)
+	}
+	for _, r := range agentID {
+		if unicode.IsControl(r) {
+			return newIdentityVerificationError(
+				IdentityStatusUnknownOrHold,
+				"agent_id_control_character",
+				"Moltbook identity response agent id contains a control character",
+				nil,
+			)
+		}
+	}
+	return nil
+}
 
-	return VerifiedIdentity{
-		AgentID:  agentID,
-		Verified: true,
-	}, nil
+func newIdentityVerificationError(
+	status IdentityVerificationStatus,
+	code string,
+	message string,
+	cause error,
+) *IdentityVerificationError {
+	return &IdentityVerificationError{
+		Status:  status,
+		Code:    code,
+		Message: message,
+		Cause:   cause,
+	}
 }
