@@ -116,14 +116,11 @@ func BuildContributionReceipt(input BuildInput) (ContributionReceipt, error) {
 	if !isGitSHA(input.BaseSHA) || !isGitSHA(input.HeadSHA) {
 		return ContributionReceipt{}, errors.New("base_sha and head_sha must be 40-character hex Git SHAs")
 	}
-	if input.Usage.ModelCalls < 0 || input.Usage.InputTokens < 0 || input.Usage.OutputTokens < 0 || input.Usage.CostUSD < 0 {
-		return ContributionReceipt{}, errors.New("usage values must be non-negative")
+	if err := validateUsage(input.Usage); err != nil {
+		return ContributionReceipt{}, err
 	}
-	if input.Timing.WallTimeMS < 0 || input.Timing.TimeToFirstEvidenceMS < 0 || input.Timing.ToolCalls < 0 || input.Timing.ContextBytes < 0 {
-		return ContributionReceipt{}, errors.New("timing values must be non-negative")
-	}
-	if input.Timing.WallTimeMS > 0 && input.Timing.TimeToFirstEvidenceMS > input.Timing.WallTimeMS {
-		return ContributionReceipt{}, errors.New("time_to_first_evidence_ms cannot exceed wall_time_ms")
+	if err := validateTiming(input.Timing); err != nil {
+		return ContributionReceipt{}, err
 	}
 
 	artifacts, err := loadArtifacts(input.PatchPath, input.TrajectoryPath, input.ConfigPath, input.EnvironmentPath, input.EvaluationPath)
@@ -171,6 +168,12 @@ func (r ContributionReceipt) Validate() error {
 	}
 	if !isGitSHA(r.BaseSHA) || !isGitSHA(r.HeadSHA) {
 		return errors.New("contribution receipt base/head SHA is invalid")
+	}
+	if err := validateUsage(r.Usage); err != nil {
+		return err
+	}
+	if err := validateTiming(r.Timing); err != nil {
+		return err
 	}
 	for name, artifact := range map[string]Artifact{
 		"patch": r.Patch, "trajectory": r.Trajectory, "config": r.Config,
@@ -328,6 +331,23 @@ func reviewHash(r ReviewReceipt) (string, error) {
 	}
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:]), nil
+}
+
+func validateUsage(usage Usage) error {
+	if usage.ModelCalls < 0 || usage.InputTokens < 0 || usage.OutputTokens < 0 || usage.CostUSD < 0 {
+		return errors.New("usage values must be non-negative")
+	}
+	return nil
+}
+
+func validateTiming(timing Timing) error {
+	if timing.WallTimeMS < 0 || timing.TimeToFirstEvidenceMS < 0 || timing.ToolCalls < 0 || timing.ContextBytes < 0 {
+		return errors.New("timing values must be non-negative")
+	}
+	if timing.WallTimeMS > 0 && timing.TimeToFirstEvidenceMS > timing.WallTimeMS {
+		return errors.New("time_to_first_evidence_ms cannot exceed wall_time_ms")
+	}
+	return nil
 }
 
 func validVerdict(v ReviewVerdict) bool {
