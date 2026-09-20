@@ -239,7 +239,15 @@ func (v *MoltbookIdentityVerifier) VerifyIdentityResultContext(ctx context.Conte
 			nil,
 		)
 	}
-	if !decoded.Success || !decoded.Valid {
+	if !decoded.Success {
+		return base, newIdentityVerificationError(
+			IdentityStatusUnknownOrHold,
+			"provider_unsuccessful",
+			"Moltbook identity provider did not complete verification",
+			nil,
+		)
+	}
+	if !decoded.Valid {
 		invalid := base
 		invalid.Status = IdentityStatusInvalid
 		return invalid, newIdentityVerificationError(
