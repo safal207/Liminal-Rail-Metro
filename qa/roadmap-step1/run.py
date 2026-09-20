@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Independent QA only. No source fix, GitHub write, service call, or deployment.
 
-Run from an isolated runner with Go/Git installed. Public source refs are pinned.
+This file is intended to execute from an immutable trusted commit, never from the
+candidate PR checkout. Public source refs are pinned and fetched independently.
 A red result means at least one safety assertion failed, not a repaired product.
 """
 import hashlib
@@ -33,6 +34,7 @@ records = []
 
 
 def run(name, args, cwd=None, safety=False, timeout=180):
+    """Run one bounded command and preserve stdout/stderr digests in audit records."""
     try:
         p = subprocess.run(args, cwd=cwd, env=env, capture_output=True, timeout=timeout)
         code, stdout, stderr = p.returncode, p.stdout, p.stderr
@@ -49,10 +51,40 @@ def run(name, args, cwd=None, safety=False, timeout=180):
 
 
 def require(name, args, cwd=None, timeout=180):
+    """Run a required command, recording evidence before propagating failure."""
     code, text = run(name, args, cwd, timeout=timeout)
     if code:
         raise RuntimeError(name + " failed; inspect saved raw logs")
     return text
+
+
+def archive(name, cwd, destination, timeout=180):
+    """Create a source archive and record command, stderr, bytes, and archive digest."""
+    args = ["git", "archive", "--format=tar.gz", "HEAD"]
+    try:
+        p = subprocess.run(args, cwd=cwd, env=env, capture_output=True, timeout=timeout)
+        code, data, stderr = p.returncode, p.stdout, p.stderr
+    except subprocess.TimeoutExpired as e:
+        code, data, stderr = 124, e.stdout or b"", e.stderr or b""
+    destination.write_bytes(data)
+    (out / (name + ".stderr.log")).write_bytes(stderr)
+    record = {
+        "name": name,
+        "command": args,
+        "cwd": str(cwd),
+        "exit_code": code,
+        "safety_assertion": False,
+        "stdout_sha256": hashlib.sha256(data).hexdigest(),
+        "stderr_sha256": hashlib.sha256(stderr).hexdigest(),
+        "archive_path": destination.name,
+        "archive_bytes": len(data),
+        "archive_sha256": hashlib.sha256(data).hexdigest(),
+    }
+    records.append(record)
+    print(json.dumps(record), flush=True)
+    if code:
+        raise RuntimeError(name + " failed; inspect saved raw logs")
+    return record
 
 
 PUBLIC_TESTS = r'''package codingworkflow
@@ -176,12 +208,23 @@ try:
     pr15, main = work / "pr15", work / "main"
     require("checkout-pr15", ["git", "worktree", "add", "--detach", str(pr15), PR15], repo)
     require("checkout-main", ["git", "worktree", "add", "--detach", str(main), MAIN], repo)
-    (out / "provenance.json").write_text(json.dumps({"pr15_head": PR15, "main_tested": MAIN,
-        "observed_origin_main": observed_main, "original_base": BASE, "live_codex_authoring": "NOT_RUN",
-        "production_mutations": False, "network_calls": "public clone and Go module download only"}, indent=2)+"\n")
+    trusted_script = Path(__file__).resolve()
+    trusted_script_sha256 = hashlib.sha256(trusted_script.read_bytes()).hexdigest()
+    (out / "provenance.json").write_text(json.dumps({
+        "pr15_head": PR15,
+        "main_tested": MAIN,
+        "observed_origin_main": observed_main,
+        "original_base": BASE,
+        "trusted_runner_commit": os.environ.get("TRUSTED_QA_COMMIT", ""),
+        "trusted_runner_path": str(trusted_script),
+        "trusted_runner_sha256": trusted_script_sha256,
+        "workflow_source_head": os.environ.get("QA_WORKFLOW_SOURCE_HEAD", ""),
+        "live_codex_authoring": "NOT_RUN",
+        "production_mutations": False,
+        "network_calls": "public clone and Go module download only"
+    }, indent=2)+"\n")
     for label, root in [("pr15", pr15), ("main", main)]:
-        with (out / ("source-"+label+".tar.gz")).open("wb") as f:
-            subprocess.run(["git", "archive", "--format=tar.gz", "HEAD"], cwd=root, env=env, stdout=f, check=True)
+        archive(label+"-source-archive", root, out / ("source-"+label+".tar.gz"))
         require(label+"-modules", ["go", "mod", "download"], root)
         run(label+"-original-tests", ["go", "test", "-count=1", "./..."], root, safety=True)
         run(label+"-original-vet", ["go", "vet", "./..."], root, safety=True)
@@ -207,7 +250,8 @@ try:
     code, _ = run("merge-pr15-into-main", ["git", "-c", "user.name=QA", "-c", "user.email=qa@example.invalid",
         "merge", "--no-commit", "--no-ff", PR15], main, safety=True)
     run("merge-conflicted-paths", ["git", "diff", "--name-only", "--diff-filter=U"], main)
-    if (repo / "worktrees/main/MERGE_HEAD").exists():
+    main_git_dir = Path(require("main-git-dir", ["git", "rev-parse", "--absolute-git-dir"], main).strip())
+    if (main_git_dir / "MERGE_HEAD").exists():
         require("abort-dry-merge", ["git", "merge", "--abort"], main)
     else:
         run("abort-dry-merge", ["git", "merge", "--abort"], main)
