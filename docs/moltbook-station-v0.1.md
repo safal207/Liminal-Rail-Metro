@@ -15,10 +15,12 @@ injected identity verifier
   -> allowlisted target: agentproof
   -> injected evidence verifier
   -> Metro Receipt
+  -> Moltbook VerifyResult
 ```
 
 The station reuses the existing Metro packet, route, hashing, receipt, and
-receipt-verification primitives.
+receipt-verification primitives, then adds a Moltbook-specific verification
+layer for bindings that the generic Metro v0.1 receipt does not cover directly.
 
 ## Reproduce
 
@@ -57,12 +59,10 @@ action ID.
 ## Receipt binding
 
 The normalized identity is SHA-256 hashed and the resulting identity reference
-is placed inside the packet inputs. Existing Metro receipt construction hashes
-those inputs, so changing the identity reference after execution breaks receipt
-verification.
+is placed inside the packet inputs.
 
-Before receipt creation, the station also hashes the **entire Metro Packet** and
-the complete verifier result. The receipt result contains:
+Before receipt creation, the station hashes the **entire Metro Packet** and the
+complete verifier result. The receipt result contains:
 
 ```text
 identity_ref
@@ -73,11 +73,19 @@ evidence_sha256
 verification_hash
 ```
 
-The existing Metro receipt then SHA-256 binds that receipt result through
-`ResultHash`. This means the receipt covers the full packet hash, selected
-target, normalized caller identity reference, declared verdict, evidence hash,
-and complete verifier-result hash. The existing Metro verifier additionally
-checks the action ID, route ID, executor, action-input hash, and result hash.
+The generic Metro receipt SHA-256 binds that receipt result through
+`ResultHash`.
+
+Moltbook `VerifyResult` then independently recomputes the complete packet hash
+from the supplied Packet and requires it to match both `Result.PacketHash` and
+the packet hash inside the receipted result. It also recomputes the verifier
+result hash and verifies identity, target, verdict, and evidence-hash bindings
+before delegating the underlying action-input, route, executor, and result-hash
+checks to `metro.Verify`.
+
+Therefore changes to fields outside `Action.Inputs`, including
+`SourceAgent`, `Constraints.SideEffect`, or `AllowedTargets`, invalidate
+MOLT-001 verification.
 
 `Receipt.Status=SUCCEEDED` means the **verification operation completed and
 its bound result was receipted**. It does not mean an external real-world action
@@ -107,7 +115,13 @@ This version deliberately does **not** prove any of the following:
 
 The duplicate-action guard is **process-local memory only**. It proves that
 repeated requests handled by the same Station instance cannot dispatch the same
-`action_id` twice. Restarting the process resets that guard.
+`action_id` twice. Restarting the process or using a second Station instance
+resets/bypasses that local guard. MOLT-001 therefore makes **no distributed or
+durable replay-protection claim**.
+
+An ambiguous verifier execution is not automatically retried by the same
+Station instance. Safe recovery across restarts or replicas is explicitly out
+of scope and would require a durable shared atomic-claim store.
 
 The identity verifier and evidence verifier are interfaces. CI uses deterministic
 fakes. A real Moltbook Identity adapter is follow-up work and must preserve the
