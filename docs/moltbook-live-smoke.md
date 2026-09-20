@@ -12,11 +12,13 @@ identity verification -> Station -> explicit local Metro authority
 ```
 
 The evidence backend runs the existing `metro.Verify` over a deterministic
-control fixture. It does not contact an external AgentProof service. The Station's
-allowlisted target remains `agentproof`; the report explicitly identifies the
-actual backend as `metro.Verify/local-control-fixture`. Authority uses the
-existing DecisionPlane gate and a separate local policy restricted to this
-read-only fixture. A verified identity alone is insufficient for dispatch.
+control fixture. It does not contact an external AgentProof service. The smoke
+creates a Station explicitly bound to the local target
+`local-control-fixture`; the bound route and receipt therefore name the same
+local executor. The default MOLT-001 Station constructor remains pinned to
+`agentproof`. Authority uses the existing DecisionPlane gate and a separate
+local policy restricted to this read-only fixture. A verified identity alone is
+insufficient for dispatch.
 
 ## Offline rehearsal
 
@@ -35,6 +37,8 @@ authority, fixture verification and receipt checks. Its report must say:
 {
   "mode": "offline_rehearsal",
   "status": "PASS",
+  "identity_provenance": "synthetic_local_rehearsal",
+  "verification_source": "local://moltbook-smoke/rehearsal",
   "live_identity_verified": false,
   "identity_attempts": 1,
   "authority_calls": 1,
@@ -43,9 +47,12 @@ authority, fixture verification and receipt checks. Its report must say:
 }
 ```
 
-This is an excerpt; the full JSON also contains revision metadata, timestamps,
-the bound Station result and the receipt hash. CI performs this rehearsal and
-saved-report verification without live credentials.
+This is an excerpt; the full JSON also contains revision metadata, the bound
+Station result and the receipt hash. Offline reports intentionally omit
+`identity_status` and `identity_verified_at`: the synthetic response is used
+only to rehearse control flow and must not look like Moltbook provider evidence.
+CI performs this rehearsal and saved-report verification without live
+credentials.
 
 ## Live prerequisites
 
@@ -127,9 +134,10 @@ For a PowerShell offline rehearsal, use the same BOM-free output pattern with
 ## Report interpretation and limits
 
 A successful live run reports `mode: live_identity_local_fixture`,
+`identity_provenance: moltbook_live_verification`,
 `live_identity_verified: true`, `identity_status: VERIFIED`, the local observation
-time, source endpoint, recorded build commit, hashed identity reference, explicit
-authority, and the verified receipt. Raw credentials, agent ID and upstream
+time, Moltbook verification source endpoint, recorded build commit, hashed
+identity reference, explicit local-fixture authority, and the verified receipt. Raw credentials, agent ID and upstream
 profile/body are omitted. Identity references are pseudonymous hashes, not a
 guarantee of anonymity. Review a report before sharing it.
 
