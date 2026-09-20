@@ -216,7 +216,7 @@ func TestQuickstartAdmissionBound(t *testing.T) {
 type brokenWriter struct{ header http.Header }
 
 func (w *brokenWriter) Header() http.Header     { return w.header }
-func (*brokenWriter) WriteHeader(int)          {}
+func (*brokenWriter) WriteHeader(int)           {}
 func (*brokenWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
 
 func TestQuickstartLostResponseDoesNotReexecute(t *testing.T) {
