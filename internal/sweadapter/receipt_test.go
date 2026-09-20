@@ -62,7 +62,6 @@ func TestContributionReceiptStaleHead(t *testing.T) {
 	}
 }
 
-
 func TestContributionReceiptValidateRejectsInvalidTelemetry(t *testing.T) {
 	dir := t.TempDir()
 	paths := fixtureFiles(t, dir)
