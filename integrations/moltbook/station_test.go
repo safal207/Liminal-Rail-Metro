@@ -46,7 +46,7 @@ func (f providerFunc) Decide(ctx context.Context, request decisionplane.Request)
 }
 
 type fakeAuthorityGate struct {
-	disposition       string
+	disposition        string
 	packetHashOverride string
 	actionIDOverride   string
 	targetOverride     string
