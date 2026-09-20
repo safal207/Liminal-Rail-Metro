@@ -61,8 +61,30 @@ is placed inside the packet inputs. Existing Metro receipt construction hashes
 those inputs, so changing the identity reference after execution breaks receipt
 verification.
 
-The receipt also binds the action ID, route ID, selected executor, input hash,
-and result hash through the existing Metro receipt verifier.
+Before receipt creation, the station also hashes the **entire Metro Packet** and
+the complete verifier result. The receipt result contains:
+
+```text
+identity_ref
+packet_hash
+target
+verdict
+evidence_sha256
+verification_hash
+```
+
+The existing Metro receipt then SHA-256 binds that receipt result through
+`ResultHash`. This means the receipt covers the full packet hash, selected
+target, normalized caller identity reference, declared verdict, evidence hash,
+and complete verifier-result hash. The existing Metro verifier additionally
+checks the action ID, route ID, executor, action-input hash, and result hash.
+
+`Receipt.Status=SUCCEEDED` means the **verification operation completed and
+its bound result was receipted**. It does not mean an external real-world action
+was independently proven successful. The verifier verdict remains a separate
+field and may represent a non-success outcome.
+
+Raw identity tokens are not copied into packets or returned station results.
 
 ## Claim ceilings
 
@@ -83,8 +105,8 @@ This version deliberately does **not** prove any of the following:
 - GitHub writes initiated from Moltbook content;
 - payments, wallets, credentials, shell execution, or other external effects.
 
-The duplicate-action guard is **process-local memory only**. It proves that two
-requests handled by the same Station instance cannot dispatch the same
+The duplicate-action guard is **process-local memory only**. It proves that
+repeated requests handled by the same Station instance cannot dispatch the same
 `action_id` twice. Restarting the process resets that guard.
 
 The identity verifier and evidence verifier are interfaces. CI uses deterministic
