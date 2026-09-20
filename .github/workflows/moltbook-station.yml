@@ -1,0 +1,43 @@
+name: moltbook-station
+
+on:
+  pull_request:
+    paths:
+      - "integrations/moltbook/**"
+      - "internal/metro/**"
+      - "internal/decisionplane/**"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/moltbook-station.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Require gofmt
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l integrations/moltbook)"
+          if [ -n "$unformatted" ]; then
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Run full Go test suite
+        run: go test ./...
+
+      - name: Run focused race checks
+        run: go test -race ./integrations/moltbook ./internal/decisionplane
