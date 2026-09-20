@@ -123,6 +123,7 @@ target
 verdict
 evidence_sha256
 verification_hash
+execution_status
 ```
 
 The generic Metro receipt SHA-256 binds that receipt result through
@@ -134,9 +135,11 @@ Moltbook `VerifyResult` independently:
 2. revalidates the authority decision against that packet/action/target;
 3. checks that the returned route is exactly the authority-bound route;
 4. recomputes and verifies the authority hash;
-5. checks identity, authority disposition, target, verdict, evidence hash, and
-   full verifier-result hash;
-6. delegates the underlying action-input, route, executor, and result-hash
+5. checks identity, authority disposition, target, verdict, evidence hash,
+   full verifier-result hash, and bound execution status;
+6. requires `execution_status` to match `Receipt.Status` and to equal
+   `SUCCEEDED`;
+7. delegates the underlying action-input, route, executor, and result-hash
    checks to `metro.Verify`.
 
 Therefore changes to fields outside `Action.Inputs`, including
@@ -150,6 +153,12 @@ was independently proven successful. The verifier verdict remains a separate
 field and may represent a non-success outcome.
 
 Raw identity tokens are not copied into packets or returned station results.
+
+The process-local duplicate guard is also exercised concurrently: the focused
+test launches 32 calls with the same `action_id` and requires exactly one
+evidence dispatch while all remaining calls fail as duplicates. This proves the
+single-Station-instance mutex boundary only; it does not extend the durable or
+distributed claim ceiling.
 
 ## Claim ceilings
 
