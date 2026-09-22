@@ -514,6 +514,9 @@ func (e *engine) runContext(ctx context.Context, req runRequest) (out runResult,
 		out.Reason = "goal not reached"
 		return out, nil
 	}
+	if err := ctx.Err(); err != nil {
+		return out, err
+	}
 	out.Status = "CONFIRMED_LOCAL"
 	out.Reason = "read-only goal reached; local bindings and result predicates checked"
 	out.Items = data

@@ -252,3 +252,25 @@ func TestMemoryBoundedEvictionAndNoResults(t *testing.T) {
 		t.Fatal("cache retained results or unbounded entries")
 	}
 }
+
+// TestMemoryCancellationDuringRun never learns a path from a cancelled caller,
+// even if a local adapter returned complete bytes after cancellation.
+func TestMemoryCancellationDuringRun(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "memory.json")
+	e := memoryEngine(t, path)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	e.menu = func() []item { cancel(); return demoMenu() }
+	out, err := e.runContext(ctx, runRequest{300, "normal"})
+	if err != context.Canceled || out.Learned || out.MemorySaved || len(e.memory) != 0 {
+		t.Fatalf("cancelled execution learned a path: %+v %v", out, err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("cancelled execution modified disk cache")
+	}
+}
