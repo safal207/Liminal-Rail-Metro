@@ -314,9 +314,6 @@ func TestResourceParentPinned(t *testing.T) {
 		t.Fatal("atomic update missed")
 	}
 	if err := os.Rename(dir, filepath.Join(root, "moved")); err != nil {
-		if runtime.GOOS == "windows" {
-			return
-		} // Retained handles deny parent rename.
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(dir, 0700); err != nil {
