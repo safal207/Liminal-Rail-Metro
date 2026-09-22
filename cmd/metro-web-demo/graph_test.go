@@ -13,6 +13,7 @@ import (
 	"github.com/safal207/Liminal-Rail-Metro/internal/metro"
 )
 
+// mustRun fails on execution errors while leaving outcome assertions to the caller.
 func mustRun(t *testing.T, e *engine, r runRequest) runResult {
 	t.Helper()
 	out, err := e.run(r)
@@ -21,6 +22,8 @@ func mustRun(t *testing.T, e *engine, r runRequest) runResult {
 	}
 	return out
 }
+
+// TestReadOnlyPath ensures write permission alone cannot enable a side-effect edge.
 func TestReadOnlyPath(t *testing.T) {
 	g := demoGraph()
 	p, err := plan(g, map[string]bool{"menu.read": true, "order.write": true}, 8)
@@ -33,6 +36,8 @@ func TestReadOnlyPath(t *testing.T) {
 		}
 	}
 }
+
+// TestRepeatedRouteFreshInputsAndIDs checks route reuse with new inputs and identities.
 func TestRepeatedRouteFreshInputsAndIDs(t *testing.T) {
 	e := newEngine()
 	first := mustRun(t, e, runRequest{300, "normal"})
@@ -56,6 +61,8 @@ func TestRepeatedRouteFreshInputsAndIDs(t *testing.T) {
 		}
 	}
 }
+
+// TestMenuRefreshWithoutGraphChange requires fresh data even when the route key is unchanged.
 func TestMenuRefreshWithoutGraphChange(t *testing.T) {
 	e := newEngine()
 	reads := 0
@@ -73,6 +80,76 @@ func TestMenuRefreshWithoutGraphChange(t *testing.T) {
 		t.Fatal("stale menu was reused")
 	}
 }
+
+// TestSharedMenuIsolatedBetweenRuns checks that version faults stay local even
+// when the menu provider reuses one backing slice for every read.
+func TestSharedMenuIsolatedBetweenRuns(t *testing.T) {
+	shared := demoMenu()
+	originalHash, err := metro.HashJSON(shared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := newEngine()
+	reads := 0
+	e.menu = func() []item {
+		reads++
+		return shared
+	}
+	first := mustRun(t, e, runRequest{300, "normal"})
+	version := mustRun(t, e, runRequest{300, "new_version"})
+	after := mustRun(t, e, runRequest{300, "normal"})
+	if first.Status != "CONFIRMED_LOCAL" || version.Status != "CONFIRMED_LOCAL" || after.Status != "CONFIRMED_LOCAL" {
+		t.Fatalf("unexpected statuses: %s / %s / %s", first.Status, version.Status, after.Status)
+	}
+	if len(first.Items) != 2 || len(version.Items) != 1 || len(after.Items) != 2 || after.ResourceHash != originalHash {
+		t.Fatalf("version data leaked: item counts %d / %d / %d; final resource hash %s, want %s", len(first.Items), len(version.Items), len(after.Items), after.ResourceHash, originalHash)
+	}
+	sharedHash, err := metro.HashJSON(shared)
+	if err != nil || sharedHash != originalHash {
+		t.Fatalf("caller-owned menu changed: %s, err=%v", sharedHash, err)
+	}
+	if reads != 3 || after.FreshReads != 1 || after.Mode != "memory_revalidated" || version.ResourceHash == originalHash {
+		t.Fatal("fresh reads, route reuse or version injection lost")
+	}
+	for _, run := range []runResult{first, version, after} {
+		for _, ev := range run.Events {
+			if ev.Receipt == nil {
+				t.Fatal("missing receipt")
+			}
+			if err := metro.Verify(ev.Packet, ev.Route, ev.Result, *ev.Receipt); err != nil {
+				t.Fatalf("later run changed earlier evidence: %v", err)
+			}
+		}
+	}
+}
+
+// TestCallerMenuChangesPreservePriorReceipts ensures later provider updates are
+// read afresh without rewriting the nested ingredient data in earlier evidence.
+func TestCallerMenuChangesPreservePriorReceipts(t *testing.T) {
+	shared := demoMenu()
+	e := newEngine()
+	e.menu = func() []item { return shared }
+	first := mustRun(t, e, runRequest{300, "normal"})
+	shared[0].Ingredients[0] = "updated coffee"
+	shared[1].Price = 500
+	after := mustRun(t, e, runRequest{300, "normal"})
+	if first.Status != "CONFIRMED_LOCAL" || after.Status != "CONFIRMED_LOCAL" || len(first.Items) != 2 || len(after.Items) != 1 {
+		t.Fatal("unexpected results after caller update")
+	}
+	if first.Items[0].Ingredients[0] != "кофе" || after.Items[0].Ingredients[0] != "updated coffee" || first.ResourceHash == after.ResourceHash || after.Mode != "memory_revalidated" || after.FreshReads != 1 {
+		t.Fatal("provider update corrupted earlier snapshot or was not read afresh")
+	}
+	for _, ev := range first.Events {
+		if ev.Receipt == nil {
+			t.Fatal("missing receipt")
+		}
+		if err := metro.Verify(ev.Packet, ev.Route, ev.Result, *ev.Receipt); err != nil {
+			t.Fatalf("provider update changed earlier evidence: %v", err)
+		}
+	}
+}
+
+// TestVersionInvalidatesRoute requires fresh planning when the graph version changes.
 func TestVersionInvalidatesRoute(t *testing.T) {
 	e := newEngine()
 	a := mustRun(t, e, runRequest{300, "normal"})
@@ -81,6 +158,8 @@ func TestVersionInvalidatesRoute(t *testing.T) {
 		t.Fatalf("bad invalidation: %+v", b)
 	}
 }
+
+// TestFailureScenariosNeverLearn rejects success evidence and new memory for failed runs.
 func TestFailureScenariosNeverLearn(t *testing.T) {
 	cases := map[string]string{"denied": "DENIED", "lost_response": "UNKNOWN", "tampered": "REJECTED", "cycle": "NO_ROUTE", "step_limit": "STEP_LIMIT"}
 	for scenario, status := range cases {
@@ -100,6 +179,8 @@ func TestFailureScenariosNeverLearn(t *testing.T) {
 		})
 	}
 }
+
+// TestPriorExperienceCannotGrantAccess checks that remembered routes cannot bypass denial.
 func TestPriorExperienceCannotGrantAccess(t *testing.T) {
 	e := newEngine()
 	mustRun(t, e, runRequest{300, "normal"})
@@ -108,6 +189,8 @@ func TestPriorExperienceCannotGrantAccess(t *testing.T) {
 		t.Fatal("permission leaked from memory")
 	}
 }
+
+// TestFailedAttemptDoesNotReplaceConfirmedMemory preserves prior paths without learning failure.
 func TestFailedAttemptDoesNotReplaceConfirmedMemory(t *testing.T) {
 	e := newEngine()
 	mustRun(t, e, runRequest{300, "normal"})
@@ -120,6 +203,8 @@ func TestFailedAttemptDoesNotReplaceConfirmedMemory(t *testing.T) {
 		t.Fatal("prior route corrupted")
 	}
 }
+
+// TestCorruptedMemoryFailsBeforeDispatch rejects a poisoned route before reading any data.
 func TestCorruptedMemoryFailsBeforeDispatch(t *testing.T) {
 	e := newEngine()
 	mustRun(t, e, runRequest{300, "normal"})
@@ -131,12 +216,16 @@ func TestCorruptedMemoryFailsBeforeDispatch(t *testing.T) {
 		t.Fatal("poisoned route executed")
 	}
 }
+
+// TestEmptyResultIsNotInvented allows a verified goal with no matching menu items.
 func TestEmptyResultIsNotInvented(t *testing.T) {
 	out := mustRun(t, newEngine(), runRequest{50, "normal"})
 	if out.Status != "CONFIRMED_LOCAL" || len(out.Items) != 0 || len(out.Events) != 4 {
 		t.Fatal("empty result mishandled")
 	}
 }
+
+// TestMetroReceiptBindings verifies evidence and rejects foreign identities or result hashes.
 func TestMetroReceiptBindings(t *testing.T) {
 	out := mustRun(t, newEngine(), runRequest{300, "normal"})
 	for _, ev := range out.Events {
@@ -158,6 +247,8 @@ func TestMetroReceiptBindings(t *testing.T) {
 		}
 	}
 }
+
+// TestGraphValidation rejects malformed or oversized graph declarations before planning.
 func TestGraphValidation(t *testing.T) {
 	changes := map[string]func(*graph){
 		"unknown protocol": func(g *graph) { g.Protocol = "other" },
@@ -181,6 +272,8 @@ func TestGraphValidation(t *testing.T) {
 		})
 	}
 }
+
+// TestRevalidateRejectsChangedPaths rejects discontinuous, forbidden or over-budget memory.
 func TestRevalidateRejectsChangedPaths(t *testing.T) {
 	g := demoGraph()
 	scopes := map[string]bool{"menu.read": true}
@@ -193,6 +286,8 @@ func TestRevalidateRejectsChangedPaths(t *testing.T) {
 		t.Fatal("limit ignored")
 	}
 }
+
+// TestConcurrentRuns checks that concurrent requests share one consistent route template.
 func TestConcurrentRuns(t *testing.T) {
 	e := newEngine()
 	var wg sync.WaitGroup
@@ -211,6 +306,8 @@ func TestConcurrentRuns(t *testing.T) {
 		t.Fatal("unexpected memory cardinality")
 	}
 }
+
+// TestMemoryIsProcessLocal ensures a new engine does not inherit another engine's routes.
 func TestMemoryIsProcessLocal(t *testing.T) {
 	mustRun(t, newEngine(), runRequest{300, "normal"})
 	out := mustRun(t, newEngine(), runRequest{300, "normal"})
@@ -218,6 +315,8 @@ func TestMemoryIsProcessLocal(t *testing.T) {
 		t.Fatal("unexpected shared memory")
 	}
 }
+
+// TestHTTPGuards covers request boundaries and the public endpoints of the local demo.
 func TestHTTPGuards(t *testing.T) {
 	cases := []struct {
 		name, method, path, body, host, origin, content string
@@ -254,6 +353,8 @@ func TestHTTPGuards(t *testing.T) {
 		})
 	}
 }
+
+// TestOfflineExportContainsActualRuns checks replay data for real engine outcomes and memory reuse.
 func TestOfflineExportContainsActualRuns(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "replay.html")
 	if err := exportReplay(path); err != nil {

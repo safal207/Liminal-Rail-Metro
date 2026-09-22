@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/safal207/Liminal-Rail-Metro/internal/metro"
@@ -32,6 +33,7 @@ type graph struct {
 	Edges    []edge `json:"edges"`
 }
 
+// demoGraph advertises the synthetic menu path and an unexecutable purchase edge.
 func demoGraph() graph {
 	return graph{graphProtocol, "robis-demo-1", "start", "done",
 		[]node{{"start", "Вход"}, {"menu", "Меню"}, {"filtered", "Подбор"}, {"details", "Состав"}, {"done", "Результат"}, {"paid", "Заказ: запрещён"}},
@@ -39,8 +41,7 @@ func demoGraph() graph {
 	}
 }
 
-// A graph advertises possibilities, never grants authority. This planner only
-// traverses read-only, explicitly permitted edges. Runtime repeats these checks.
+// validate checks graph bounds and references without granting execution rights.
 func (g graph) validate() error {
 	if g.Protocol != graphProtocol || g.Version == "" || len(g.Version) > 80 || len(g.Nodes) < 2 || len(g.Nodes) > 64 || len(g.Edges) > 256 {
 		return fmt.Errorf("invalid graph bounds or protocol")
@@ -64,7 +65,11 @@ func (g graph) validate() error {
 	}
 	return nil
 }
+
+// permitted requires explicit read permission and rejects every side effect.
 func permitted(e edge, scopes map[string]bool) bool { return !e.SideEffect && scopes[e.Scope] }
+
+// plan finds a shortest permitted path within the step budget without revisiting nodes.
 func plan(g graph, scopes map[string]bool, maxSteps int) ([]edge, error) {
 	if err := g.validate(); err != nil {
 		return nil, err
@@ -98,6 +103,8 @@ func plan(g graph, scopes map[string]bool, maxSteps int) ([]edge, error) {
 	}
 	return nil, fmt.Errorf("no permitted path within step budget")
 }
+
+// revalidate checks remembered transitions against the current graph, scopes and budget.
 func revalidate(g graph, ids []string, scopes map[string]bool, maxSteps int) ([]edge, error) {
 	if err := g.validate(); err != nil {
 		return nil, err
@@ -135,6 +142,7 @@ type item struct {
 	Ingredients []string `json:"ingredients"`
 }
 
+// demoMenu returns a fresh synthetic fixture, including an unavailable drink.
 func demoMenu() []item {
 	return []item{
 		{"americano", "Американо", 190, true, []string{"кофе", "вода"}},
@@ -149,6 +157,7 @@ type runRequest struct {
 	Scenario string `json:"scenario"`
 }
 
+// valid accepts only bounded budgets and the closed set of demonstration scenarios.
 func (r runRequest) valid() bool {
 	if r.Budget < 1 || r.Budget > 10000 {
 		return false
@@ -192,7 +201,10 @@ type engine struct {
 	menu func() []item
 }
 
+// newEngine creates isolated process-local route memory and a synthetic menu reader.
 func newEngine() *engine { return &engine{memory: map[string][]string{}, menu: demoMenu} }
+
+// freshID creates a new run or action identity and propagates entropy-source failures.
 func freshID() (string, error) {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -200,6 +212,9 @@ func freshID() (string, error) {
 	}
 	return hex.EncodeToString(b[:]), nil
 }
+
+// run serializes read-only execution, verifies local receipts and remembers only
+// confirmed paths. Each run snapshots fresh menu data instead of caching results.
 func (e *engine) run(req runRequest) (out runResult, err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -283,7 +298,12 @@ func (e *engine) run(req runRequest) (out runResult, err error) {
 		case "read_menu":
 			// Always read again, including route-memory hits. This is a local fixture,
 			// not a network request to Robis or an independent external readback.
-			data = e.menu()
+			// Own the snapshot before fault injection; providers may reuse slices.
+			// Nested data must also stay stable in receipts after later reads.
+			data = slices.Clone(e.menu())
+			for i := range data {
+				data[i].Ingredients = slices.Clone(data[i].Ingredients)
+			}
 			out.FreshReads++
 			if req.Scenario == "new_version" {
 				for i := range data {

@@ -20,6 +20,7 @@ import (
 //go:embed index.html
 var page string
 
+// handler serves the local UI and bounded demo API after Host and Origin checks.
 func handler(e *engine, host string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -92,6 +93,7 @@ type recordedCase struct {
 	Result  runResult  `json:"result"`
 }
 
+// exportReplay writes an offline viewer containing results from nine actual local runs.
 func exportReplay(path string) error {
 	e := newEngine()
 	cases := []recordedCase{}
@@ -112,6 +114,8 @@ func exportReplay(path string) error {
 	html := strings.Replace(page, "/*REPLAY_DATA*/", "window.__REPLAY__="+string(payload)+";", 1)
 	return os.WriteFile(path, []byte(html), 0600)
 }
+
+// main exports recorded runs or starts the demo on an IPv4 loopback listener.
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8787", "loopback IPv4 listen address")
 	export := flag.String("export", "", "write an offline viewer of actual local runs, then exit")

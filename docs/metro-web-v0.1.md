@@ -66,6 +66,12 @@ templates may remain available, but they still require revalidation and fresh
 execution. At most 16 templates are retained; the demo clears that cache when
 inserting beyond this bound. Runs are serialized, not throughput-optimized.
 
+Each read copies the returned items and their ingredient slices into a run-owned
+snapshot. A provider may reuse its backing slices between reads: scenario-specific
+price changes cannot modify the provider's menu, and later provider updates cannot
+rewrite previously issued result evidence. Providers must not mutate their slices
+concurrently while the engine is reading them.
+
 This is process-local route reuse, not model training, generalized skill
 learning, durable memory, cross-agent experience sharing or speedup evidence.
 
@@ -97,19 +103,32 @@ go test -race -count=1 ./cmd/metro-web-demo
 go vet ./cmd/metro-web-demo
 ```
 
-Author-side local checks: 16 top-level tests and 24 subtests passed; targeted
-race checks and vet passed. Nine real loopback HTTP scenario runs passed. Nine
-recorded UI scenarios were checked in Chromium using offline HTML rendering;
-mobile layout had no horizontal overflow and no JavaScript runtime errors were
-observed. Browser navigation to the live loopback endpoint was blocked by the
-execution environment, so browser-to-live-server end-to-end coverage remains
-unverified. The actual HTTP API and recorded UI were checked separately.
+Local follow-up on 2026-09-22 used Go 1.23.12 on Windows/amd64 and a complete
+repository checkout. Before the snapshot fix, both new regressions failed:
+version changes contaminated a shared fixture, and provider ingredient updates
+changed previously returned evidence. After the fix, all 18 top-level demo tests
+and 24 subtests passed, along with `internal/metro` tests and targeted vet.
 
-Local Go version was 1.23.2 with `GOTOOLCHAIN=local GOPROXY=off`. The workspace
-contained the new package plus exact upstream `go.mod` and `internal/metro/metro.go`
-from base `a239c6db21b0596f7ec672936db4205a43f2dfca`. The latter's Git blob was
-verified as `a08f1c96eab8745ca4531def25ec9ec1ec3637b2`. This is targeted package
-validation, NOT a full-repository regression or independent external review.
+Nine live browser-to-Go-server scenarios passed on the initial prototype commit
+`428e81d36607e746fbb3a3edc9ce055830f7210c`, with no observed JavaScript errors.
+This closes the earlier environment limitation that required separate HTTP and
+offline-UI checks. The original offline checks also covered mobile layout.
+After the snapshot fix, all ten live browser scenarios passed, adding a return
+to the normal menu after a version run; the item counts were 2, then 1, then 2.
+No JavaScript errors were observed in the updated run either.
+
+A full Windows regression on that prototype commit passed 14 packages and failed
+three (`internal/adaptive`, `internal/lifetrabridge`, `internal/policyauthority`);
+20 packages had no tests. All eight failing tests reported directory sync access
+errors and also failed on base `a239c6db21b0596f7ec672936db4205a43f2dfca`.
+Full-repository vet passed. The complete regression is therefore not claimed as
+green on Windows. The original targeted race check passed with Go 1.23.2 in a
+different environment; it has not been rerun in this Windows follow-up.
+
+CodeRabbit and Qodo reviewed the initial prototype in PR #33. CodeRabbit reported
+no actionable correctness issues and warned about missing function comments.
+Qodo identified the shared-fixture mutation addressed by the snapshot fix and
+regression tests above. Reviewer feedback is not proof of external effects.
 
 ## Not included / next boundary
 
