@@ -240,6 +240,7 @@ type engine struct {
 	resource    resourceReader
 	graphFile   *resourceSource
 	remoteGraph *httpResourceSource
+	asset       *assetService
 }
 
 // newEngine creates isolated process-local route memory and a synthetic menu reader.

@@ -21,6 +21,9 @@ import (
 //go:embed index.html
 var page string
 
+//go:embed asset.html
+var assetPage string
+
 // handler serves the local UI and bounded demo API after Host and Origin checks.
 func handler(e *engine, host string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -36,6 +39,10 @@ func handler(e *engine, host string) http.Handler {
 			http.Error(w, "invalid origin", http.StatusForbidden)
 			return
 		}
+		if e.asset != nil && r.URL.Path != "/" && r.URL.Path != "/api/asset" && r.URL.Path != "/api/asset/content" {
+			http.NotFound(w, r)
+			return
+		}
 		switch r.URL.Path {
 		case "/":
 			if r.Method != http.MethodGet {
@@ -43,6 +50,14 @@ func handler(e *engine, host string) http.Handler {
 				return
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if e.asset != nil {
+				mode := "window.__ASSET_SOURCE__='file';"
+				if e.asset.remote != nil {
+					mode = "window.__ASSET_SOURCE__='http';"
+				}
+				_, _ = io.WriteString(w, strings.Replace(assetPage, "/*ASSET_MODE*/", mode, 1))
+				return
+			}
 			html := page
 			mode := ""
 			if e.store != nil {
@@ -64,6 +79,12 @@ func handler(e *engine, host string) http.Handler {
 			e.serveGraph(w, r)
 		case "/api/resource", "/api/resource/content":
 			e.serveResource(w, r)
+		case "/api/asset", "/api/asset/content":
+			if e.asset == nil {
+				http.NotFound(w, r)
+				return
+			}
+			e.asset.serve(w, r)
 		case "/api/run":
 			if r.Method != http.MethodPost {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -138,7 +159,12 @@ func main() {
 	graphFile := flag.String("graph-file", "", "publish a v0.2 menu graph from a local JSON file (requires -resource)")
 	remoteGraph := flag.Bool("remote-graph", false, "fetch a fresh v0.2 graph from the configured -remote origin")
 	memory := flag.String("memory", "", "persist bounded route memory in a dedicated local file (one process per file)")
+	asset := flag.String("asset", "", "publish a bounded read-only binary file")
+	remoteAsset := flag.String("remote-asset", "", "read binary chunks from a fixed HTTP(S) publisher origin")
 	flag.Parse()
+	if (*asset != "" || *remoteAsset != "") && (*export != "" || *resource != "" || *remote != "" || *graphFile != "" || *remoteGraph || *memory != "") || (*asset != "" && *remoteAsset != "") {
+		log.Fatal("choose asset or remote-asset separately from menu, graph, export and memory modes")
+	}
 	if *export != "" && *memory != "" {
 		log.Fatal("-memory cannot be combined with -export")
 	}
@@ -165,6 +191,28 @@ func main() {
 	}
 	actual := listener.Addr().String()
 	e := newEngine()
+	if *asset != "" {
+		source, sourceErr := newResourceSource(*asset)
+		if sourceErr != nil {
+			log.Fatal(sourceErr)
+		}
+		e.asset = &assetService{local: source}
+		defer source.close()
+		if _, err := e.asset.manifest(context.Background()); err != nil {
+			log.Fatalf("asset unavailable or too large: %v", err)
+		}
+	}
+	if *remoteAsset != "" {
+		source, sourceErr := newHTTPResourceSource(*remoteAsset)
+		if sourceErr != nil {
+			log.Fatal(sourceErr)
+		}
+		if source.targets(actual) {
+			log.Fatal("remote asset origin cannot be this server")
+		}
+		e.asset = &assetService{remote: source}
+		defer source.close()
+	}
 	if *memory != "" {
 		if err := e.enableMemory(*memory); err != nil {
 			log.Fatalf("route memory: %v", err)
@@ -207,6 +255,6 @@ func main() {
 		}
 	}
 	server := &http.Server{Handler: handler(e, actual), ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
-	log.Printf("Metro Web local demo: http://%s (file: %t; HTTP reader: %t; read-only)", actual, *resource != "", *remote != "")
+	log.Printf("Metro Web local demo: http://%s (menu file: %t; menu HTTP: %t; asset file: %t; asset HTTP: %t; read-only)", actual, *resource != "", *remote != "", *asset != "", *remoteAsset != "")
 	log.Fatal(server.Serve(listener))
 }
