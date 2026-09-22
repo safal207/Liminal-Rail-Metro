@@ -57,6 +57,9 @@ func newHTTPResourceSource(raw string) (*httpResourceSource, error) {
 	if strings.ContainsAny(u.Host, "\\\r\n") {
 		return nil, fmt.Errorf("invalid remote origin")
 	}
+	if strings.Contains(u.Hostname(), "%") {
+		return nil, fmt.Errorf("scoped IPv6 origins are unsupported")
+	}
 	host := strings.ToLower(u.Hostname())
 	if ip := net.ParseIP(host); ip != nil {
 		host = ip.String()

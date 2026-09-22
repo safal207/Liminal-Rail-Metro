@@ -132,7 +132,7 @@ func TestRemoteOriginPolicy(t *testing.T) {
 		}
 		source.close()
 	}
-	for _, origin := range []string{"http://localhost:8788", "http://example.test", "file:///menu.json", "https://user:password@example.test", "https://example.test/api/resource", "https://example.test/?token=secret", "https://example.test/#", "https://:443", "https://example.test:", "https://example.test:0", "https://example.test:65536"} {
+	for _, origin := range []string{"http://localhost:8788", "http://example.test", "file:///menu.json", "https://user:password@example.test", "https://example.test/api/resource", "https://example.test/?token=secret", "https://example.test/#", "https://:443", "https://example.test:", "https://example.test:0", "https://example.test:65536", "https://[fe80::1%25eth0]:443", "https://[fe80::1%25eth0]"} {
 		if source, err := newHTTPResourceSource(origin); err == nil {
 			source.close()
 			t.Fatalf("origin accepted: %s", origin)

@@ -28,6 +28,7 @@ two local processes.
 `-remote` accepts an origin, for example `https://publisher.example`, without
 credentials, a path, query or fragment. HTTPS uses normal certificate validation.
 Plain HTTP is accepted only for a literal loopback IP, never a hostname.
+Scoped IPv6 origins (with a zone identifier) are rejected at startup.
 The server itself still listens only on IPv4 loopback.
 
 The adapter supports the existing `metro.web.resource.v0.1` menu contract:
