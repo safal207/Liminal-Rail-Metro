@@ -8,7 +8,7 @@ an integration with a cafe or an LLM.
 
 ## Run
 
-From the repository root, with Go 1.23.12:
+From the repository root on Linux or Windows, with Go 1.23.12:
 
 ```sh
 go run ./cmd/metro-web-demo -resource examples/metro-web/menu.json
@@ -48,6 +48,19 @@ resource endpoints; the route returns a `REJECTED` outcome, with no success
 receipt or cached result substituted. The existing route memory survives for
 use after the file is repaired. Unknown query keys and client-selected paths
 are rejected. File mode exposes only the path selected at server startup.
+
+The parent directory is pinned at startup. Linux walks directory descriptors
+with `openat`/`O_NOFOLLOW` and reopens only the configured leaf relative to the
+retained descriptor. Windows rejects reparse points and retains each ancestor
+without delete sharing, so those directories cannot be renamed during serving;
+the leaf uses a no-follow open and can still be intentionally replaced.
+See the [Windows CreateFile semantics](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew).
+Startup links, linked parents and post-start leaf links are rejected. Windows
+file mode requires a local-drive path, not a UNC path or alternate data stream.
+Other platforms keep synthetic mode but reject file mode until they have a
+safe adapter. This is not protection against authorized publishers changing
+the contents or installing another regular file/hard link at the menu name:
+the selected directory and its writers must be trusted.
 
 For an agent, fetch the graph, discover the passport, retrieve its `href`, then
 verify SHA-256 and byte count before interpreting the document. For example,
@@ -101,3 +114,6 @@ SHA-256 proves agreement with the passport's bytes, not publisher identity.
 Validation covers file edits with route reuse, original receipt stability,
 passport tampering, lost files and recovery, exact bytes, stale versions,
 discovery, HTTP guards, malformed data, and the existing graph scenarios.
+Regressions also cover startup and replacement symlinks, pinned parent identity,
+and intentional atomic leaf replacement. Symlink-specific tests skip on Windows
+without symlink-creation privilege; Linux CI executes them.

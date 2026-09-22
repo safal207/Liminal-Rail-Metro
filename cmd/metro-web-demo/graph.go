@@ -52,7 +52,7 @@ func demoGraph() graph {
 // graph describes the current adapter and links its resource discovery endpoint.
 func (e *engine) graph() graph {
 	g := demoGraph()
-	if e.resourcePath != "" {
+	if e.resource != nil {
 		g.Version = "menu-file-1"
 		g.Resources = []resourceLink{{ID: "menu", Manifest: "/api/resource", ReadEdge: "read_menu"}}
 	}
@@ -219,7 +219,7 @@ type engine struct {
 	// Fixtures are caller-owned only in tests. Production demo uses fresh fixtures.
 	menu func() []item
 	// Fixed at startup; HTTP callers cannot select another file.
-	resourcePath string
+	resource *resourceSource
 }
 
 // newEngine creates isolated process-local route memory and a synthetic menu reader.
@@ -240,7 +240,7 @@ func (e *engine) run(req runRequest) (out runResult, err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	out = runResult{Status: "REJECTED", Mode: "graph", Budget: req.Budget, Events: []event{}, Items: []item{}, EvidenceScope: "local fixture consistency; no external attestation or LLM"}
-	if e.resourcePath != "" {
+	if e.resource != nil {
 		out.EvidenceScope = "local file snapshot and exact-byte SHA-256; no external attestation or LLM"
 	}
 	defer func() { out.MemoryEntries = len(e.memory) }()
@@ -258,7 +258,7 @@ func (e *engine) run(req runRequest) (out runResult, err error) {
 	switch req.Scenario {
 	case "new_version":
 		g.Version = "robis-demo-2"
-		if e.resourcePath != "" {
+		if e.resource != nil {
 			g.Version = "menu-file-2"
 		}
 	case "denied":
@@ -323,8 +323,8 @@ func (e *engine) run(req runRequest) (out runResult, err error) {
 		observation := event{Edge: transition, Status: "UNKNOWN", Packet: packet, Route: route}
 		switch transition.ID {
 		case "read_menu":
-			if e.resourcePath != "" {
-				snapshot, readErr := readResource(e.resourcePath)
+			if e.resource != nil {
+				snapshot, readErr := e.resource.read()
 				if readErr != nil {
 					observation.Status = "REJECTED"
 					out.Events = append(out.Events, observation)

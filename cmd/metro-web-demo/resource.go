@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"unicode/utf8"
 )
@@ -42,22 +43,65 @@ type resourceSnapshot struct {
 	Bytes    []byte
 }
 
+type resourceSource struct {
+	parent  *os.File
+	name    string
+	parents []*os.File
+}
+
+// close releases the startup directory handles after all readers have stopped.
+func (s *resourceSource) close() {
+	for i := len(s.parents) - 1; i >= 0; i-- {
+		_ = s.parents[i].Close()
+	}
+}
+
+// newResourceSource pins the parent directory and rejects an initial symlink.
+func newResourceSource(path string) (*resourceSource, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("invalid resource path")
+	}
+	s, err := openResourceParent(abs)
+	if err != nil {
+		return nil, fmt.Errorf("resource directory unavailable or unsafe: %w", err)
+	}
+	f, err := s.openFile()
+	if err != nil {
+		s.close()
+		return nil, fmt.Errorf("resource cannot be opened safely")
+	}
+	info, statErr := f.Stat()
+	_ = f.Close()
+	if statErr != nil || !info.Mode().IsRegular() {
+		s.close()
+		return nil, fmt.Errorf("resource must be a regular file")
+	}
+	return s, nil
+}
+
 // readResource reads one bounded snapshot from the operator-configured regular
 // file. Parsing and its byte digest always refer to the same read, never a cache.
 func readResource(path string) (resourceSnapshot, error) {
-	var out resourceSnapshot
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() > maxResourceBytes {
-		return out, fmt.Errorf("resource must be a regular file of at most 1 MiB")
+	s, err := newResourceSource(path)
+	if err != nil {
+		return resourceSnapshot{}, err
 	}
-	f, err := os.Open(path)
+	defer s.close()
+	return s.read()
+}
+
+// read opens only the pinned directory's configured leaf, rejecting link swaps.
+func (s *resourceSource) read() (resourceSnapshot, error) {
+	var out resourceSnapshot
+	f, err := s.openFile()
 	if err != nil {
 		return out, fmt.Errorf("resource cannot be opened")
 	}
 	defer f.Close()
-	info, err = f.Stat()
-	if err != nil || !info.Mode().IsRegular() {
-		return out, fmt.Errorf("resource must be a regular file")
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxResourceBytes {
+		return out, fmt.Errorf("resource must be a regular file of at most 1 MiB")
 	}
 	raw, err := io.ReadAll(io.LimitReader(f, maxResourceBytes+1))
 	if err != nil || len(raw) > maxResourceBytes || !utf8.Valid(raw) {
@@ -113,7 +157,7 @@ func (e *engine) serveResource(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if e.resourcePath == "" {
+	if e.resource == nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -123,7 +167,7 @@ func (e *engine) serveResource(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid resource query", http.StatusBadRequest)
 		return
 	}
-	snapshot, err := readResource(e.resourcePath)
+	snapshot, err := e.resource.read()
 	if err != nil {
 		http.Error(w, "resource unavailable or invalid", http.StatusServiceUnavailable)
 		return

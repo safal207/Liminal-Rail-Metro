@@ -43,7 +43,7 @@ func handler(e *engine, host string) http.Handler {
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			html := page
-			if e.resourcePath != "" {
+			if e.resource != nil {
 				html = strings.Replace(html, "/*REPLAY_DATA*/", "window.__FILE_RESOURCE__=true;", 1)
 			}
 			_, _ = io.WriteString(w, html)
@@ -147,9 +147,14 @@ func main() {
 	}
 	actual := listener.Addr().String()
 	e := newEngine()
-	e.resourcePath = *resource
+
 	if *resource != "" {
-		if _, err := readResource(*resource); err != nil {
+		e.resource, err = newResourceSource(*resource)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer e.resource.close()
+		if _, err := e.resource.read(); err != nil {
 			log.Fatal(err)
 		}
 	}
