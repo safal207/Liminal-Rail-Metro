@@ -42,14 +42,20 @@ func handler(e *engine, host string) http.Handler {
 				return
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_, _ = io.WriteString(w, page)
+			html := page
+			if e.resource != nil {
+				html = strings.Replace(html, "/*REPLAY_DATA*/", "window.__FILE_RESOURCE__=true;", 1)
+			}
+			_, _ = io.WriteString(w, html)
 		case "/api/manifest":
 			if r.Method != http.MethodGet {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(demoGraph())
+			_ = json.NewEncoder(w).Encode(e.graph())
+		case "/api/resource", "/api/resource/content":
+			e.serveResource(w, r)
 		case "/api/run":
 			if r.Method != http.MethodPost {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -119,7 +125,11 @@ func exportReplay(path string) error {
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8787", "loopback IPv4 listen address")
 	export := flag.String("export", "", "write an offline viewer of actual local runs, then exit")
+	resource := flag.String("resource", "", "read a menu JSON file afresh for each run")
 	flag.Parse()
+	if *export != "" && *resource != "" {
+		log.Fatal("offline export supports synthetic fixtures only; omit -resource")
+	}
 	if *export != "" {
 		if err := exportReplay(*export); err != nil {
 			log.Fatal(err)
@@ -136,7 +146,19 @@ func main() {
 		log.Fatal(err)
 	}
 	actual := listener.Addr().String()
-	server := &http.Server{Handler: handler(newEngine(), actual), ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
-	log.Printf("Metro Web local demo: http://%s (synthetic Robis data; no external actions)", actual)
+	e := newEngine()
+
+	if *resource != "" {
+		e.resource, err = newResourceSource(*resource)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer e.resource.close()
+		if _, err := e.resource.read(); err != nil {
+			log.Fatal(err)
+		}
+	}
+	server := &http.Server{Handler: handler(e, actual), ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
+	log.Printf("Metro Web local demo: http://%s (file resource: %t; no external actions)", actual, *resource != "")
 	log.Fatal(server.Serve(listener))
 }

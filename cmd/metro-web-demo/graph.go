@@ -25,12 +25,19 @@ type edge struct {
 	SideEffect bool   `json:"side_effect"`
 }
 type graph struct {
-	Protocol string `json:"protocol"`
-	Version  string `json:"version"`
-	Start    string `json:"start"`
-	Goal     string `json:"goal"`
-	Nodes    []node `json:"nodes"`
-	Edges    []edge `json:"edges"`
+	Protocol  string         `json:"protocol"`
+	Version   string         `json:"version"`
+	Start     string         `json:"start"`
+	Goal      string         `json:"goal"`
+	Nodes     []node         `json:"nodes"`
+	Edges     []edge         `json:"edges"`
+	Resources []resourceLink `json:"resources,omitempty"`
+}
+
+type resourceLink struct {
+	ID       string `json:"id"`
+	Manifest string `json:"manifest"`
+	ReadEdge string `json:"read_edge"`
 }
 
 // demoGraph advertises the synthetic menu path and an unexecutable purchase edge.
@@ -38,7 +45,18 @@ func demoGraph() graph {
 	return graph{graphProtocol, "robis-demo-1", "start", "done",
 		[]node{{"start", "Вход"}, {"menu", "Меню"}, {"filtered", "Подбор"}, {"details", "Состав"}, {"done", "Результат"}, {"paid", "Заказ: запрещён"}},
 		[]edge{{"read_menu", "start", "menu", "menu.read", false}, {"filter", "menu", "filtered", "menu.read", false}, {"ingredients", "filtered", "details", "menu.read", false}, {"present", "details", "done", "menu.read", false}, {"purchase", "details", "paid", "order.write", true}},
+		nil,
 	}
+}
+
+// graph describes the current adapter and links its resource discovery endpoint.
+func (e *engine) graph() graph {
+	g := demoGraph()
+	if e.resource != nil {
+		g.Version = "menu-file-1"
+		g.Resources = []resourceLink{{ID: "menu", Manifest: "/api/resource", ReadEdge: "read_menu"}}
+	}
+	return g
 }
 
 // validate checks graph bounds and references without granting execution rights.
@@ -178,27 +196,30 @@ type event struct {
 	Receipt *metro.Receipt `json:"receipt,omitempty"`
 }
 type runResult struct {
-	ID            string  `json:"run_id"`
-	Status        string  `json:"status"`
-	Reason        string  `json:"reason"`
-	Mode          string  `json:"route_source"`
-	Graph         graph   `json:"graph"`
-	GraphHash     string  `json:"graph_hash"`
-	ResourceHash  string  `json:"resource_hash,omitempty"`
-	Budget        int     `json:"budget"`
-	FreshReads    int     `json:"fresh_reads"`
-	PlannedSteps  int     `json:"planned_steps"`
-	Events        []event `json:"events"`
-	Items         []item  `json:"items"`
-	Learned       bool    `json:"learned"`
-	MemoryEntries int     `json:"memory_entries"`
-	EvidenceScope string  `json:"evidence_scope"`
+	ID            string            `json:"run_id"`
+	Status        string            `json:"status"`
+	Reason        string            `json:"reason"`
+	Mode          string            `json:"route_source"`
+	Graph         graph             `json:"graph"`
+	GraphHash     string            `json:"graph_hash"`
+	ResourceHash  string            `json:"resource_hash,omitempty"`
+	Resource      *resourceManifest `json:"resource,omitempty"`
+	Budget        int               `json:"budget"`
+	FreshReads    int               `json:"fresh_reads"`
+	PlannedSteps  int               `json:"planned_steps"`
+	Events        []event           `json:"events"`
+	Items         []item            `json:"items"`
+	Learned       bool              `json:"learned"`
+	MemoryEntries int               `json:"memory_entries"`
+	EvidenceScope string            `json:"evidence_scope"`
 }
 type engine struct {
 	mu     sync.Mutex
 	memory map[string][]string
 	// Fixtures are caller-owned only in tests. Production demo uses fresh fixtures.
 	menu func() []item
+	// Fixed at startup; HTTP callers cannot select another file.
+	resource *resourceSource
 }
 
 // newEngine creates isolated process-local route memory and a synthetic menu reader.
@@ -219,6 +240,9 @@ func (e *engine) run(req runRequest) (out runResult, err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	out = runResult{Status: "REJECTED", Mode: "graph", Budget: req.Budget, Events: []event{}, Items: []item{}, EvidenceScope: "local fixture consistency; no external attestation or LLM"}
+	if e.resource != nil {
+		out.EvidenceScope = "local file snapshot and exact-byte SHA-256; no external attestation or LLM"
+	}
 	defer func() { out.MemoryEntries = len(e.memory) }()
 	if !req.valid() {
 		out.Reason = "invalid request"
@@ -228,12 +252,15 @@ func (e *engine) run(req runRequest) (out runResult, err error) {
 	if err != nil {
 		return out, err
 	}
-	g := demoGraph()
+	g := e.graph()
 	scopes := map[string]bool{"menu.read": true}
 	maxSteps := 8
 	switch req.Scenario {
 	case "new_version":
 		g.Version = "robis-demo-2"
+		if e.resource != nil {
+			g.Version = "menu-file-2"
+		}
 	case "denied":
 		scopes["menu.read"] = false
 	case "cycle":
@@ -296,26 +323,36 @@ func (e *engine) run(req runRequest) (out runResult, err error) {
 		observation := event{Edge: transition, Status: "UNKNOWN", Packet: packet, Route: route}
 		switch transition.ID {
 		case "read_menu":
-			// Always read again, including route-memory hits. This is a local fixture,
-			// not a network request to Robis or an independent external readback.
-			// Own the snapshot before fault injection; providers may reuse slices.
-			// Nested data must also stay stable in receipts after later reads.
-			data = slices.Clone(e.menu())
-			for i := range data {
-				data[i].Ingredients = slices.Clone(data[i].Ingredients)
-			}
-			out.FreshReads++
-			if req.Scenario == "new_version" {
+			if e.resource != nil {
+				snapshot, readErr := e.resource.read()
+				if readErr != nil {
+					observation.Status = "REJECTED"
+					out.Events = append(out.Events, observation)
+					out.Reason = "resource unavailable or invalid"
+					return out, nil
+				}
+				data = snapshot.Document.Items
+				out.Resource = &snapshot.Manifest
+				out.ResourceHash = snapshot.Manifest.SHA256
+			} else {
+				// Own nested fixture data before fault injection or later provider reads.
+				data = slices.Clone(e.menu())
 				for i := range data {
-					if data[i].ID == "cappuccino" {
-						data[i].Price = 310
+					data[i].Ingredients = slices.Clone(data[i].Ingredients)
+				}
+				if req.Scenario == "new_version" {
+					for i := range data {
+						if data[i].ID == "cappuccino" {
+							data[i].Price = 310
+						}
 					}
 				}
+				out.ResourceHash, err = metro.HashJSON(data)
+				if err != nil {
+					return out, err
+				}
 			}
-			out.ResourceHash, err = metro.HashJSON(data)
-			if err != nil {
-				return out, err
-			}
+			out.FreshReads++
 			if req.Scenario == "lost_response" {
 				out.Events = append(out.Events, observation)
 				out.Status = "UNKNOWN"
@@ -347,6 +384,9 @@ func (e *engine) run(req runRequest) (out runResult, err error) {
 			}
 		}
 		observation.Result = map[string]any{"state": transition.To, "graph_hash": out.GraphHash, "resource_hash": out.ResourceHash, "items": data}
+		if out.Resource != nil {
+			observation.Result["resource"] = *out.Resource
+		}
 		receipt, receiptErr := metro.MakeSuccessReceipt(packet, route, observation.Result, "")
 		if receiptErr != nil {
 			return out, receiptErr
