@@ -258,7 +258,7 @@ func TestGraphValidation(t *testing.T) {
 		"dangling edge":    func(g *graph) { g.Edges[0].To = "absent" },
 		"too many nodes": func(g *graph) {
 			for i := 0; i < 65; i++ {
-				g.Nodes = append(g.Nodes, node{fmt.Sprint(i), "node"})
+				g.Nodes = append(g.Nodes, node{ID: fmt.Sprint(i), Label: "node"})
 			}
 		},
 	}

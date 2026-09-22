@@ -49,16 +49,14 @@ func handler(e *engine, host string) http.Handler {
 				if e.resource.origin().Transport == "http" {
 					mode = "window.__HTTP_RESOURCE__=true;"
 				}
+				if e.remoteGraph != nil || e.graphFile != nil {
+					mode += "window.__PUBLISHED_GRAPH__=true;"
+				}
 				html = strings.Replace(html, "/*REPLAY_DATA*/", mode, 1)
 			}
 			_, _ = io.WriteString(w, html)
 		case "/api/manifest":
-			if r.Method != http.MethodGet {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(e.graph())
+			e.serveGraph(w, r)
 		case "/api/resource", "/api/resource/content":
 			e.serveResource(w, r)
 		case "/api/run":
@@ -132,9 +130,14 @@ func main() {
 	export := flag.String("export", "", "write an offline viewer of actual local runs, then exit")
 	resource := flag.String("resource", "", "read a menu JSON file afresh for each run")
 	remote := flag.String("remote", "", "read a Metro menu from a fixed HTTP(S) origin")
+	graphFile := flag.String("graph-file", "", "publish a v0.2 menu graph from a local JSON file (requires -resource)")
+	remoteGraph := flag.Bool("remote-graph", false, "fetch a fresh v0.2 graph from the configured -remote origin")
 	flag.Parse()
 	if (*export != "" && (*resource != "" || *remote != "")) || (*resource != "" && *remote != "") {
 		log.Fatal("choose one of -export, -resource, or -remote")
+	}
+	if (*graphFile != "" && (*resource == "" || *remoteGraph)) || (*remoteGraph && *remote == "") {
+		log.Fatal("-graph-file requires -resource; -remote-graph requires -remote")
 	}
 	if *export != "" {
 		if err := exportReplay(*export); err != nil {
@@ -174,6 +177,19 @@ func main() {
 		}
 		e.resource = source
 		defer source.close()
+		if *remoteGraph {
+			e.remoteGraph = source
+		}
+	}
+	if *graphFile != "" {
+		e.graphFile, err = newResourceSource(*graphFile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer e.graphFile.close()
+		if _, err := e.loadGraph(context.Background()); err != nil {
+			log.Fatal(err)
+		}
 	}
 	server := &http.Server{Handler: handler(e, actual), ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 	log.Printf("Metro Web local demo: http://%s (file: %t; HTTP reader: %t; read-only)", actual, *resource != "", *remote != "")

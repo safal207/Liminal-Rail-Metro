@@ -1,0 +1,108 @@
+{
+  "protocol": "metro.web.graph.v0.2",
+  "version": "publisher-menu-1",
+  "start": "entry",
+  "goal": "answer",
+  "nodes": [
+    {
+      "id": "entry",
+      "label": "Вход издателя",
+      "kind": "start"
+    },
+    {
+      "id": "catalog",
+      "label": "Меню издателя",
+      "kind": "menu"
+    },
+    {
+      "id": "selection",
+      "label": "В пределах бюджета",
+      "kind": "filtered"
+    },
+    {
+      "id": "composition-a",
+      "label": "Состав · путь A",
+      "kind": "details"
+    },
+    {
+      "id": "composition-b",
+      "label": "Состав · путь B",
+      "kind": "details"
+    },
+    {
+      "id": "answer",
+      "label": "Ответ",
+      "kind": "done"
+    },
+    {
+      "id": "checkout",
+      "label": "Заказ запрещён",
+      "kind": "blocked"
+    }
+  ],
+  "edges": [
+    {
+      "id": "load-catalog",
+      "from": "entry",
+      "to": "catalog",
+      "scope": "menu.read",
+      "side_effect": false,
+      "action": "read_menu"
+    },
+    {
+      "id": "choose-budget",
+      "from": "catalog",
+      "to": "selection",
+      "scope": "menu.read",
+      "side_effect": false,
+      "action": "filter"
+    },
+    {
+      "id": "inspect-a",
+      "from": "selection",
+      "to": "composition-a",
+      "scope": "menu.read",
+      "side_effect": false,
+      "action": "ingredients"
+    },
+    {
+      "id": "show-a",
+      "from": "composition-a",
+      "to": "answer",
+      "scope": "menu.read",
+      "side_effect": false,
+      "action": "present"
+    },
+    {
+      "id": "inspect-b",
+      "from": "selection",
+      "to": "composition-b",
+      "scope": "menu.read",
+      "side_effect": false,
+      "action": "ingredients"
+    },
+    {
+      "id": "show-b",
+      "from": "composition-b",
+      "to": "answer",
+      "scope": "menu.read",
+      "side_effect": false,
+      "action": "present"
+    },
+    {
+      "id": "buy",
+      "from": "composition-a",
+      "to": "checkout",
+      "scope": "order.write",
+      "side_effect": true,
+      "action": "purchase"
+    }
+  ],
+  "resources": [
+    {
+      "id": "menu",
+      "manifest": "/api/resource",
+      "read_edge": "load-catalog"
+    }
+  ]
+}
