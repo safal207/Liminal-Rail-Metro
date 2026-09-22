@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -38,6 +40,7 @@ type resourceLink struct {
 	ID       string `json:"id"`
 	Manifest string `json:"manifest"`
 	ReadEdge string `json:"read_edge"`
+	Origin   string `json:"origin,omitempty"`
 }
 
 // demoGraph advertises the synthetic menu path and an unexecutable purchase edge.
@@ -55,6 +58,10 @@ func (e *engine) graph() graph {
 	if e.resource != nil {
 		g.Version = "menu-file-1"
 		g.Resources = []resourceLink{{ID: "menu", Manifest: "/api/resource", ReadEdge: "read_menu"}}
+		if e.resource.origin().Transport == "http" {
+			g.Version = "menu-http-1"
+			g.Resources[0].Origin = e.resource.origin().Origin
+		}
 	}
 	return g
 }
@@ -196,30 +203,32 @@ type event struct {
 	Receipt *metro.Receipt `json:"receipt,omitempty"`
 }
 type runResult struct {
-	ID            string            `json:"run_id"`
-	Status        string            `json:"status"`
-	Reason        string            `json:"reason"`
-	Mode          string            `json:"route_source"`
-	Graph         graph             `json:"graph"`
-	GraphHash     string            `json:"graph_hash"`
-	ResourceHash  string            `json:"resource_hash,omitempty"`
-	Resource      *resourceManifest `json:"resource,omitempty"`
-	Budget        int               `json:"budget"`
-	FreshReads    int               `json:"fresh_reads"`
-	PlannedSteps  int               `json:"planned_steps"`
-	Events        []event           `json:"events"`
-	Items         []item            `json:"items"`
-	Learned       bool              `json:"learned"`
-	MemoryEntries int               `json:"memory_entries"`
-	EvidenceScope string            `json:"evidence_scope"`
+	ID             string            `json:"run_id"`
+	Status         string            `json:"status"`
+	Reason         string            `json:"reason"`
+	Mode           string            `json:"route_source"`
+	Graph          graph             `json:"graph"`
+	GraphHash      string            `json:"graph_hash"`
+	ResourceHash   string            `json:"resource_hash,omitempty"`
+	Resource       *resourceManifest `json:"resource,omitempty"`
+	ResourceSource *resourceOrigin   `json:"resource_source,omitempty"`
+	HTTPAttempts   int               `json:"http_attempts,omitempty"`
+	Budget         int               `json:"budget"`
+	FreshReads     int               `json:"fresh_reads"`
+	PlannedSteps   int               `json:"planned_steps"`
+	Events         []event           `json:"events"`
+	Items          []item            `json:"items"`
+	Learned        bool              `json:"learned"`
+	MemoryEntries  int               `json:"memory_entries"`
+	EvidenceScope  string            `json:"evidence_scope"`
 }
 type engine struct {
 	mu     sync.Mutex
 	memory map[string][]string
 	// Fixtures are caller-owned only in tests. Production demo uses fresh fixtures.
 	menu func() []item
-	// Fixed at startup; HTTP callers cannot select another file.
-	resource *resourceSource
+	// Fixed at startup; HTTP callers cannot select another source.
+	resource resourceReader
 }
 
 // newEngine creates isolated process-local route memory and a synthetic menu reader.
@@ -234,19 +243,32 @@ func freshID() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-// run serializes read-only execution, verifies local receipts and remembers only
+// run executes a standalone route without an HTTP caller's cancellation context.
+func (e *engine) run(req runRequest) (runResult, error) {
+	return e.runContext(context.Background(), req)
+}
+
+// runContext serializes read-only execution, verifies local receipts and remembers only
 // confirmed paths. Each run snapshots fresh menu data instead of caching results.
-func (e *engine) run(req runRequest) (out runResult, err error) {
+func (e *engine) runContext(ctx context.Context, req runRequest) (out runResult, err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	out = runResult{Status: "REJECTED", Mode: "graph", Budget: req.Budget, Events: []event{}, Items: []item{}, EvidenceScope: "local fixture consistency; no external attestation or LLM"}
 	if e.resource != nil {
 		out.EvidenceScope = "local file snapshot and exact-byte SHA-256; no external attestation or LLM"
+		source := e.resource.origin()
+		out.ResourceSource = &source
+		if source.Transport == "http" {
+			out.EvidenceScope = "HTTP bytes verified against publisher passport; local receipt, no independent attestation or LLM"
+		}
 	}
 	defer func() { out.MemoryEntries = len(e.memory) }()
 	if !req.valid() {
 		out.Reason = "invalid request"
 		return out, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return out, err
 	}
 	out.ID, err = freshID()
 	if err != nil {
@@ -260,6 +282,9 @@ func (e *engine) run(req runRequest) (out runResult, err error) {
 		g.Version = "robis-demo-2"
 		if e.resource != nil {
 			g.Version = "menu-file-2"
+			if e.resource.origin().Transport == "http" {
+				g.Version = "menu-http-2"
+			}
 		}
 	case "denied":
 		scopes["menu.read"] = false
@@ -313,8 +338,14 @@ func (e *engine) run(req runRequest) (out runResult, err error) {
 			return out, idErr
 		}
 		input := map[string]any{"graph_hash": out.GraphHash, "state": state, "budget": req.Budget, "resource_hash": out.ResourceHash, "edge": transition.ID}
+		if out.ResourceSource != nil {
+			input["resource_source"] = *out.ResourceSource
+		}
 		packet := metro.NewPacket(actionID, "metro-web-demo", "find available drinks within budget", metro.Action{Kind: transition.ID, Inputs: input}, []string{localExecutor})
 		packet.Constraints = metro.Constraints{TimeoutMS: 1000, SideEffect: false}
+		if transition.ID == "read_menu" && out.ResourceSource != nil && out.ResourceSource.Transport == "http" {
+			packet.Constraints.TimeoutMS = int(remoteReadTimeout.Milliseconds())
+		}
 		router := metro.Router{ID: "metro-web-demo", Policy: map[string]string{transition.ID: localExecutor}}
 		route, routeErr := router.Route(packet)
 		if routeErr != nil {
@@ -324,11 +355,19 @@ func (e *engine) run(req runRequest) (out runResult, err error) {
 		switch transition.ID {
 		case "read_menu":
 			if e.resource != nil {
-				snapshot, readErr := e.resource.read()
+				snapshot, readErr := e.resource.read(ctx)
+				out.HTTPAttempts += snapshot.Requests
 				if readErr != nil {
 					observation.Status = "REJECTED"
-					out.Events = append(out.Events, observation)
 					out.Reason = "resource unavailable or invalid"
+					if errors.Is(readErr, errRemoteIncomplete) {
+						out.Status = "UNKNOWN"
+						observation.Status = "UNKNOWN"
+						out.Reason = errRemoteIncomplete.Error()
+					} else if errors.Is(readErr, errRemoteChanged) || errors.Is(readErr, errRemoteInvalid) {
+						out.Reason = readErr.Error()
+					}
+					out.Events = append(out.Events, observation)
 					return out, nil
 				}
 				data = snapshot.Document.Items
@@ -386,6 +425,9 @@ func (e *engine) run(req runRequest) (out runResult, err error) {
 		observation.Result = map[string]any{"state": transition.To, "graph_hash": out.GraphHash, "resource_hash": out.ResourceHash, "items": data}
 		if out.Resource != nil {
 			observation.Result["resource"] = *out.Resource
+		}
+		if out.ResourceSource != nil {
+			observation.Result["resource_source"] = *out.ResourceSource
 		}
 		receipt, receiptErr := metro.MakeSuccessReceipt(packet, route, observation.Result, "")
 		if receiptErr != nil {
