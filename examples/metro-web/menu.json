@@ -1,0 +1,10 @@
+{
+  "schema": "metro.web.menu.v0.1",
+  "title": "Учебное меню Metro — данные из файла",
+  "items": [
+    {"id": "americano", "name": "Американо", "price_rub": 190, "available": true, "ingredients": ["кофе", "вода"]},
+    {"id": "cappuccino", "name": "Капучино", "price_rub": 280, "available": true, "ingredients": ["кофе", "молоко"]},
+    {"id": "matcha", "name": "Матча", "price_rub": 320, "available": true, "ingredients": ["матча", "молоко"]},
+    {"id": "cocoa", "name": "Какао", "price_rub": 260, "available": false, "ingredients": ["какао", "молоко"]}
+  ]
+}
