@@ -98,7 +98,7 @@ func (s *resourceSource) read() (resourceSnapshot, error) {
 	if err != nil {
 		return out, fmt.Errorf("resource cannot be opened")
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Size() > maxResourceBytes {
 		return out, fmt.Errorf("resource must be a regular file of at most 1 MiB")

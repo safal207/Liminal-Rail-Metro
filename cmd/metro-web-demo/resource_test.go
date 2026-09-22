@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -148,7 +149,7 @@ func TestResourceHTTPVersionPin(t *testing.T) {
 	e := fileEngine(t, path)
 	h := handler(e, "127.0.0.1:8787")
 	get := func(target string) *httptest.ResponseRecorder {
-		r := httptest.NewRequest("GET", target, nil)
+		r := httptest.NewRequestWithContext(context.Background(), "GET", target, nil)
 		r.Host = "127.0.0.1:8787"
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
@@ -192,7 +193,7 @@ func TestResourceHTTPVersionPin(t *testing.T) {
 	}
 	for _, target := range []string{"/api/resource", latest.Href} {
 		for _, guard := range []string{"host", "origin", "method"} {
-			r := httptest.NewRequest("GET", target, nil)
+			r := httptest.NewRequestWithContext(context.Background(), "GET", target, nil)
 			r.Host = "127.0.0.1:8787"
 			want := 403
 			if guard == "host" {
@@ -280,7 +281,7 @@ func TestResourceRejectsLaterSymlink(t *testing.T) {
 	if out.Status != "REJECTED" || out.Resource != nil || len(out.Items) != 0 {
 		t.Fatal("replacement link was followed")
 	}
-	r := httptest.NewRequest("GET", "/api/resource", nil)
+	r := httptest.NewRequestWithContext(context.Background(), "GET", "/api/resource", nil)
 	r.Host = "127.0.0.1:8787"
 	w := httptest.NewRecorder()
 	handler(e, r.Host).ServeHTTP(w, r)
