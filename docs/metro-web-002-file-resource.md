@@ -52,7 +52,8 @@ are rejected. File mode exposes only the path selected at server startup.
 The parent directory is pinned at startup. Linux walks directory descriptors
 with `openat`/`O_NOFOLLOW` and reopens only the configured leaf relative to the
 retained descriptor. Windows rejects reparse points and retains each ancestor
-without delete sharing, so those directories cannot be renamed during serving;
+without write/delete sharing, so those directories cannot be renamed or opened
+for reparse-point mutation during serving;
 the leaf uses a no-follow open and can still be intentionally replaced.
 See the [Windows CreateFile semantics](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew).
 Startup links, linked parents and post-start leaf links are rejected. Windows

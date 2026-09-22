@@ -9,7 +9,8 @@ import (
 )
 
 // openWindowsResource opens the final component without following any reparse
-// point. Directory handles omit delete sharing, pinning their names until close.
+// point. Directory handles omit write/delete sharing, pinning their names and
+// preventing conversion into reparse points until close.
 func openWindowsResource(path string, directory bool) (*os.File, error) {
 	name, err := syscall.UTF16PtrFromString(path)
 	if err != nil {
@@ -20,6 +21,7 @@ func openWindowsResource(path string, directory bool) (*os.File, error) {
 	access := uint32(syscall.GENERIC_READ)
 	if directory {
 		flags |= syscall.FILE_FLAG_BACKUP_SEMANTICS
+		share = syscall.FILE_SHARE_READ
 		// FILE_TRAVERSE | FILE_READ_ATTRIBUTES; directory listing is unnecessary.
 		access = 0x20 | 0x80
 	} else {
