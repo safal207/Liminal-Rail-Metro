@@ -223,11 +223,17 @@ type runResult struct {
 	Items          []item            `json:"items"`
 	Learned        bool              `json:"learned"`
 	MemoryEntries  int               `json:"memory_entries"`
+	MemoryStorage  string            `json:"memory_storage"`
+	MemoryRestored bool              `json:"memory_restored"`
+	MemorySaved    bool              `json:"memory_saved"`
+	MemoryWarning  string            `json:"memory_warning,omitempty"`
 	EvidenceScope  string            `json:"evidence_scope"`
 }
 type engine struct {
-	gate   chan struct{}
-	memory map[string][]string
+	gate     chan struct{}
+	memory   map[string][]string
+	store    *memoryStore
+	restored map[string]bool
 	// Fixtures are caller-owned only in tests. Production demo uses fresh fixtures.
 	menu func() []item
 	// Fixed at startup; HTTP callers cannot select another source.
@@ -275,6 +281,10 @@ func (e *engine) runContext(ctx context.Context, req runRequest) (out runResult,
 		}
 	}
 	defer func() { out.MemoryEntries = len(e.memory) }()
+	out.MemoryStorage = "process"
+	if e.store != nil {
+		out.MemoryStorage = "file"
+	}
 	if !req.valid() {
 		out.Reason = "invalid request"
 		return out, nil
@@ -346,7 +356,13 @@ func (e *engine) runContext(ctx context.Context, req runRequest) (out runResult,
 	var path []edge
 	if ids, ok := e.memory[key]; ok {
 		out.Mode = "memory_revalidated"
+		out.MemoryRestored = e.restored[key]
 		path, err = revalidate(g, ids, scopes, maxSteps)
+		if err != nil {
+			// A disk entry is only a hint. Discard it and plan under today's rules.
+			out.Mode, out.MemoryRestored = "graph", false
+			path, err = plan(g, scopes, maxSteps)
+		}
 	} else {
 		path, err = plan(g, scopes, maxSteps)
 	}
@@ -507,8 +523,19 @@ func (e *engine) runContext(ctx context.Context, req runRequest) (out runResult,
 	}
 	if _, ok := e.memory[key]; !ok && len(e.memory) >= 16 {
 		e.memory = map[string][]string{}
+		e.restored = map[string]bool{}
 	}
 	e.memory[key] = ids
+	if out.Mode == "graph" {
+		delete(e.restored, key)
+	}
 	out.Learned = true
+	if e.store != nil {
+		if err := e.store.save(e.memory); err != nil {
+			out.MemoryWarning = "route completed, but memory could not be saved to disk"
+		} else {
+			out.MemorySaved = true
+		}
+	}
 	return out, nil
 }

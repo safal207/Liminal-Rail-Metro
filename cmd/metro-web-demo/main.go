@@ -44,16 +44,21 @@ func handler(e *engine, host string) http.Handler {
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			html := page
+			mode := ""
+			if e.store != nil {
+				mode = "window.__PERSISTENT_MEMORY__=true;"
+			}
 			if e.resource != nil {
-				mode := "window.__FILE_RESOURCE__=true;"
+				resourceMode := "window.__FILE_RESOURCE__=true;"
 				if e.resource.origin().Transport == "http" {
-					mode = "window.__HTTP_RESOURCE__=true;"
+					resourceMode = "window.__HTTP_RESOURCE__=true;"
 				}
+				mode += resourceMode
 				if e.remoteGraph != nil || e.graphFile != nil {
 					mode += "window.__PUBLISHED_GRAPH__=true;"
 				}
-				html = strings.Replace(html, "/*REPLAY_DATA*/", mode, 1)
 			}
+			html = strings.Replace(html, "/*REPLAY_DATA*/", mode, 1)
 			_, _ = io.WriteString(w, html)
 		case "/api/manifest":
 			e.serveGraph(w, r)
@@ -132,7 +137,11 @@ func main() {
 	remote := flag.String("remote", "", "read a Metro menu from a fixed HTTP(S) origin")
 	graphFile := flag.String("graph-file", "", "publish a v0.2 menu graph from a local JSON file (requires -resource)")
 	remoteGraph := flag.Bool("remote-graph", false, "fetch a fresh v0.2 graph from the configured -remote origin")
+	memory := flag.String("memory", "", "persist bounded route memory in a dedicated local file (one process per file)")
 	flag.Parse()
+	if *export != "" && *memory != "" {
+		log.Fatal("-memory cannot be combined with -export")
+	}
 	if (*export != "" && (*resource != "" || *remote != "")) || (*resource != "" && *remote != "") {
 		log.Fatal("choose one of -export, -resource, or -remote")
 	}
@@ -156,6 +165,12 @@ func main() {
 	}
 	actual := listener.Addr().String()
 	e := newEngine()
+	if *memory != "" {
+		if err := e.enableMemory(*memory); err != nil {
+			log.Fatalf("route memory: %v", err)
+		}
+		defer e.store.close()
+	}
 
 	if *resource != "" {
 		e.resource, err = newResourceSource(*resource)
