@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"flag"
@@ -44,7 +45,11 @@ func handler(e *engine, host string) http.Handler {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			html := page
 			if e.resource != nil {
-				html = strings.Replace(html, "/*REPLAY_DATA*/", "window.__FILE_RESOURCE__=true;", 1)
+				mode := "window.__FILE_RESOURCE__=true;"
+				if e.resource.origin().Transport == "http" {
+					mode = "window.__HTTP_RESOURCE__=true;"
+				}
+				html = strings.Replace(html, "/*REPLAY_DATA*/", mode, 1)
 			}
 			_, _ = io.WriteString(w, html)
 		case "/api/manifest":
@@ -80,7 +85,7 @@ func handler(e *engine, host string) http.Handler {
 				http.Error(w, "invalid request", http.StatusBadRequest)
 				return
 			}
-			out, err := e.run(req)
+			out, err := e.runContext(r.Context(), req)
 			if err != nil {
 				http.Error(w, "local execution error", http.StatusInternalServerError)
 				return
@@ -126,9 +131,10 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:8787", "loopback IPv4 listen address")
 	export := flag.String("export", "", "write an offline viewer of actual local runs, then exit")
 	resource := flag.String("resource", "", "read a menu JSON file afresh for each run")
+	remote := flag.String("remote", "", "read a Metro menu from a fixed HTTP(S) origin")
 	flag.Parse()
-	if *export != "" && *resource != "" {
-		log.Fatal("offline export supports synthetic fixtures only; omit -resource")
+	if (*export != "" && (*resource != "" || *remote != "")) || (*resource != "" && *remote != "") {
+		log.Fatal("choose one of -export, -resource, or -remote")
 	}
 	if *export != "" {
 		if err := exportReplay(*export); err != nil {
@@ -154,11 +160,22 @@ func main() {
 			log.Fatal(err)
 		}
 		defer e.resource.close()
-		if _, err := e.resource.read(); err != nil {
+		if _, err := e.resource.read(context.Background()); err != nil {
 			log.Fatal(err)
 		}
 	}
+	if *remote != "" {
+		source, sourceErr := newHTTPResourceSource(*remote)
+		if sourceErr != nil {
+			log.Fatal(sourceErr)
+		}
+		if source.targets(actual) {
+			log.Fatal("remote origin cannot be this server")
+		}
+		e.resource = source
+		defer source.close()
+	}
 	server := &http.Server{Handler: handler(e, actual), ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
-	log.Printf("Metro Web local demo: http://%s (file resource: %t; no external actions)", actual, *resource != "")
+	log.Printf("Metro Web local demo: http://%s (file: %t; HTTP reader: %t; read-only)", actual, *resource != "", *remote != "")
 	log.Fatal(server.Serve(listener))
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -41,7 +42,22 @@ type resourceSnapshot struct {
 	Manifest resourceManifest
 	Document menuDocument
 	Bytes    []byte
+	Requests int
 }
+
+type resourceOrigin struct {
+	Transport string `json:"transport"`
+	Origin    string `json:"origin,omitempty"`
+}
+
+type resourceReader interface {
+	read(context.Context) (resourceSnapshot, error)
+	close()
+	origin() resourceOrigin
+}
+
+// origin identifies the local adapter without exposing its filesystem path.
+func (*resourceSource) origin() resourceOrigin { return resourceOrigin{Transport: "file"} }
 
 type resourceSource struct {
 	parent  *os.File
@@ -88,12 +104,15 @@ func readResource(path string) (resourceSnapshot, error) {
 		return resourceSnapshot{}, err
 	}
 	defer s.close()
-	return s.read()
+	return s.read(context.Background())
 }
 
 // read opens only the pinned directory's configured leaf, rejecting link swaps.
-func (s *resourceSource) read() (resourceSnapshot, error) {
+func (s *resourceSource) read(ctx context.Context) (resourceSnapshot, error) {
 	var out resourceSnapshot
+	if err := ctx.Err(); err != nil {
+		return out, err
+	}
 	f, err := s.openFile()
 	if err != nil {
 		return out, fmt.Errorf("resource cannot be opened")
@@ -104,7 +123,16 @@ func (s *resourceSource) read() (resourceSnapshot, error) {
 		return out, fmt.Errorf("resource must be a regular file of at most 1 MiB")
 	}
 	raw, err := io.ReadAll(io.LimitReader(f, maxResourceBytes+1))
-	if err != nil || len(raw) > maxResourceBytes || !utf8.Valid(raw) {
+	if err != nil {
+		return out, fmt.Errorf("resource cannot be read")
+	}
+	return parseResource(raw)
+}
+
+// parseResource validates a bounded menu and hashes exactly the supplied bytes.
+func parseResource(raw []byte) (resourceSnapshot, error) {
+	var out resourceSnapshot
+	if len(raw) > maxResourceBytes || !utf8.Valid(raw) {
 		return out, fmt.Errorf("resource must be bounded UTF-8 JSON")
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
@@ -167,7 +195,13 @@ func (e *engine) serveResource(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid resource query", http.StatusBadRequest)
 		return
 	}
-	snapshot, err := e.resource.read()
+	// A reader may relay data to its local UI, but never to another reader.
+	// This bounds cycles between two accidentally cross-configured demos.
+	if e.resource.origin().Transport == "http" && r.Header.Get("X-Metro-Resource-Read") != "" {
+		http.Error(w, "reader chains are unsupported", http.StatusLoopDetected)
+		return
+	}
+	snapshot, err := e.resource.read(r.Context())
 	if err != nil {
 		http.Error(w, "resource unavailable or invalid", http.StatusServiceUnavailable)
 		return
