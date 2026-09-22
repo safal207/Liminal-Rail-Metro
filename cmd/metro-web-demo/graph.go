@@ -17,6 +17,7 @@ const localExecutor = "robis-demo-reader"
 type node struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
+	Kind  string `json:"kind,omitempty"`
 }
 type edge struct {
 	ID         string `json:"id"`
@@ -24,6 +25,7 @@ type edge struct {
 	To         string `json:"to"`
 	Scope      string `json:"scope"`
 	SideEffect bool   `json:"side_effect"`
+	Action     string `json:"action,omitempty"`
 }
 type graph struct {
 	Protocol  string         `json:"protocol"`
@@ -45,8 +47,8 @@ type resourceLink struct {
 // demoGraph advertises the synthetic menu path and an unexecutable purchase edge.
 func demoGraph() graph {
 	return graph{graphProtocol, "robis-demo-1", "start", "done",
-		[]node{{"start", "Вход"}, {"menu", "Меню"}, {"filtered", "Подбор"}, {"details", "Состав"}, {"done", "Результат"}, {"paid", "Заказ: запрещён"}},
-		[]edge{{"read_menu", "start", "menu", "menu.read", false}, {"filter", "menu", "filtered", "menu.read", false}, {"ingredients", "filtered", "details", "menu.read", false}, {"present", "details", "done", "menu.read", false}, {"purchase", "details", "paid", "order.write", true}},
+		[]node{{ID: "start", Label: "Вход"}, {ID: "menu", Label: "Меню"}, {ID: "filtered", Label: "Подбор"}, {ID: "details", Label: "Состав"}, {ID: "done", Label: "Результат"}, {ID: "paid", Label: "Заказ: запрещён"}},
+		[]edge{{ID: "read_menu", From: "start", To: "menu", Scope: "menu.read"}, {ID: "filter", From: "menu", To: "filtered", Scope: "menu.read"}, {ID: "ingredients", From: "filtered", To: "details", Scope: "menu.read"}, {ID: "present", From: "details", To: "done", Scope: "menu.read"}, {ID: "purchase", From: "details", To: "paid", Scope: "order.write", SideEffect: true}},
 		nil,
 	}
 }
@@ -67,7 +69,7 @@ func (e *engine) graph() graph {
 
 // validate checks graph bounds and references without granting execution rights.
 func (g graph) validate() error {
-	if g.Protocol != graphProtocol || g.Version == "" || len(g.Version) > 80 || len(g.Nodes) < 2 || len(g.Nodes) > 64 || len(g.Edges) > 256 {
+	if (g.Protocol != graphProtocol && g.Protocol != remoteGraphProtocol) || g.Version == "" || len(g.Version) > 80 || len(g.Nodes) < 2 || len(g.Nodes) > 64 || len(g.Edges) > 256 {
 		return fmt.Errorf("invalid graph bounds or protocol")
 	}
 	nodes := map[string]bool{}
@@ -208,6 +210,8 @@ type runResult struct {
 	Mode           string            `json:"route_source"`
 	Graph          graph             `json:"graph"`
 	GraphHash      string            `json:"graph_hash"`
+	GraphSource    *graphEvidence    `json:"graph_source,omitempty"`
+	GraphAttempts  int               `json:"graph_http_attempts,omitempty"`
 	ResourceHash   string            `json:"resource_hash,omitempty"`
 	Resource       *resourceManifest `json:"resource,omitempty"`
 	ResourceSource *resourceOrigin   `json:"resource_source,omitempty"`
@@ -227,7 +231,9 @@ type engine struct {
 	// Fixtures are caller-owned only in tests. Production demo uses fresh fixtures.
 	menu func() []item
 	// Fixed at startup; HTTP callers cannot select another source.
-	resource resourceReader
+	resource    resourceReader
+	graphFile   *resourceSource
+	remoteGraph *httpResourceSource
 }
 
 // newEngine creates isolated process-local route memory and a synthetic menu reader.
@@ -253,6 +259,7 @@ func (e *engine) run(req runRequest) (runResult, error) {
 // confirmed paths. Each run snapshots fresh menu data instead of caching results.
 func (e *engine) runContext(ctx context.Context, req runRequest) (out runResult, err error) {
 	out = runResult{Status: "REJECTED", Mode: "graph", Budget: req.Budget, Events: []event{}, Items: []item{}, EvidenceScope: "local fixture consistency; no external attestation or LLM"}
+	out.Graph = graph{Nodes: []node{}, Edges: []edge{}}
 	select {
 	case e.gate <- struct{}{}:
 		defer func() { <-e.gate }()
@@ -279,7 +286,34 @@ func (e *engine) runContext(ctx context.Context, req runRequest) (out runResult,
 	if err != nil {
 		return out, err
 	}
-	g := e.graph()
+	published := e.remoteGraph != nil || e.graphFile != nil
+	if published && req.Scenario == "denied" {
+		out.Status, out.Reason = "DENIED", "no permitted path within step budget"
+		return out, nil
+	}
+	if published && (req.Scenario == "new_version" || req.Scenario == "cycle") {
+		out.Reason = "update the publisher graph to test topology changes"
+		return out, nil
+	}
+	if e.remoteGraph != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, remoteReadTimeout)
+		defer cancel()
+	}
+	snapshot, graphErr := e.loadGraph(ctx)
+	out.GraphAttempts = snapshot.Attempts
+	if graphErr != nil {
+		out.Reason = "graph unavailable or invalid"
+		if errors.Is(graphErr, errRemoteIncomplete) {
+			out.Status = "UNKNOWN"
+			out.Reason = "remote graph read incomplete; no automatic retry"
+		} else if e.remoteGraph != nil {
+			out.Reason = "remote graph failed verification"
+		}
+		return out, nil
+	}
+	g := snapshot.Graph
+	out.GraphSource = snapshot.Evidence
 	scopes := map[string]bool{"menu.read": true}
 	maxSteps := 8
 	switch req.Scenario {
@@ -330,10 +364,10 @@ func (e *engine) runContext(ctx context.Context, req runRequest) (out runResult,
 	out.PlannedSteps = len(path)
 	state := g.Start
 	data := []item{}
-	contracts := map[string][2]string{"read_menu": {"start", "menu"}, "filter": {"menu", "filtered"}, "ingredients": {"filtered", "details"}, "present": {"details", "done"}}
 	for _, transition := range path {
-		contract, known := contracts[transition.ID]
-		if !known || !permitted(transition, scopes) || transition.Scope != "menu.read" || transition.From != state || contract[0] != state || contract[1] != transition.To {
+		action := transition.operation()
+		from, to, known := readContract(action)
+		if !known || !permitted(transition, scopes) || transition.Scope != "menu.read" || transition.From != state || from != g.stateKind(state) || to != g.stateKind(transition.To) {
 			out.Status = "DENIED"
 			out.Reason = "runtime precondition or authority rejected"
 			return out, nil
@@ -346,18 +380,21 @@ func (e *engine) runContext(ctx context.Context, req runRequest) (out runResult,
 		if out.ResourceSource != nil {
 			input["resource_source"] = *out.ResourceSource
 		}
-		packet := metro.NewPacket(actionID, "metro-web-demo", "find available drinks within budget", metro.Action{Kind: transition.ID, Inputs: input}, []string{localExecutor})
+		if out.GraphSource != nil {
+			input["graph_source"] = *out.GraphSource
+		}
+		packet := metro.NewPacket(actionID, "metro-web-demo", "find available drinks within budget", metro.Action{Kind: action, Inputs: input}, []string{localExecutor})
 		packet.Constraints = metro.Constraints{TimeoutMS: 1000, SideEffect: false}
-		if transition.ID == "read_menu" && out.ResourceSource != nil && out.ResourceSource.Transport == "http" {
+		if action == "read_menu" && out.ResourceSource != nil && out.ResourceSource.Transport == "http" {
 			packet.Constraints.TimeoutMS = int(remoteReadTimeout.Milliseconds())
 		}
-		router := metro.Router{ID: "metro-web-demo", Policy: map[string]string{transition.ID: localExecutor}}
+		router := metro.Router{ID: "metro-web-demo", Policy: map[string]string{action: localExecutor}}
 		route, routeErr := router.Route(packet)
 		if routeErr != nil {
 			return out, routeErr
 		}
 		observation := event{Edge: transition, Status: "UNKNOWN", Packet: packet, Route: route}
-		switch transition.ID {
+		switch action {
 		case "read_menu":
 			if e.resource != nil {
 				snapshot, readErr := e.resource.read(ctx)
@@ -434,12 +471,15 @@ func (e *engine) runContext(ctx context.Context, req runRequest) (out runResult,
 		if out.ResourceSource != nil {
 			observation.Result["resource_source"] = *out.ResourceSource
 		}
+		if out.GraphSource != nil {
+			observation.Result["graph_source"] = *out.GraphSource
+		}
 		receipt, receiptErr := metro.MakeSuccessReceipt(packet, route, observation.Result, "")
 		if receiptErr != nil {
 			return out, receiptErr
 		}
 		// Fault injection tampers with bytes AFTER the receipt was made.
-		if req.Scenario == "tampered" && transition.ID == "read_menu" {
+		if req.Scenario == "tampered" && action == "read_menu" {
 			observation.Result["resource_hash"] = "tampered"
 		}
 		if verifyErr := metro.Verify(packet, route, observation.Result, receipt); verifyErr != nil {

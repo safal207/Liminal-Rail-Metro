@@ -109,24 +109,32 @@ func readResource(path string) (resourceSnapshot, error) {
 
 // read opens only the pinned directory's configured leaf, rejecting link swaps.
 func (s *resourceSource) read(ctx context.Context) (resourceSnapshot, error) {
-	var out resourceSnapshot
+	raw, err := s.readBytes(ctx, maxResourceBytes)
+	if err != nil {
+		return resourceSnapshot{}, err
+	}
+	return parseResource(raw)
+}
+
+// readBytes shares the pinned-file boundary with menu and graph documents.
+func (s *resourceSource) readBytes(ctx context.Context, limit int) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
-		return out, err
+		return nil, err
 	}
 	f, err := s.openFile()
 	if err != nil {
-		return out, fmt.Errorf("resource cannot be opened")
+		return nil, fmt.Errorf("resource cannot be opened")
 	}
 	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > maxResourceBytes {
-		return out, fmt.Errorf("resource must be a regular file of at most 1 MiB")
+	if err != nil || !info.Mode().IsRegular() || info.Size() > int64(limit) {
+		return nil, fmt.Errorf("resource must be a bounded regular file")
 	}
-	raw, err := io.ReadAll(io.LimitReader(f, maxResourceBytes+1))
-	if err != nil {
-		return out, fmt.Errorf("resource cannot be read")
+	raw, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
+	if err != nil || len(raw) > limit {
+		return nil, fmt.Errorf("resource cannot be read within bounds")
 	}
-	return parseResource(raw)
+	return raw, nil
 }
 
 // parseResource validates a bounded menu and hashes exactly the supplied bytes.
