@@ -204,16 +204,21 @@ func TestFailedAttemptDoesNotReplaceConfirmedMemory(t *testing.T) {
 	}
 }
 
-// TestCorruptedMemoryFailsBeforeDispatch rejects a poisoned route before reading any data.
-func TestCorruptedMemoryFailsBeforeDispatch(t *testing.T) {
+// TestCorruptedMemoryReplans rejects a poisoned route and plans from the fresh graph.
+func TestCorruptedMemoryReplans(t *testing.T) {
 	e := newEngine()
 	mustRun(t, e, runRequest{300, "normal"})
 	for k := range e.memory {
 		e.memory[k] = []string{"purchase"}
 	}
 	out := mustRun(t, e, runRequest{300, "normal"})
-	if out.Status == "CONFIRMED_LOCAL" || len(out.Events) != 0 || out.FreshReads != 0 || out.Learned {
-		t.Fatal("poisoned route executed")
+	if out.Status != "CONFIRMED_LOCAL" || out.Mode != "graph" || len(out.Events) != 4 || out.FreshReads != 1 || !out.Learned {
+		t.Fatal("fresh planning failed")
+	}
+	for _, event := range out.Events {
+		if event.Edge.ID == "purchase" {
+			t.Fatal("poisoned route executed")
+		}
 	}
 }
 

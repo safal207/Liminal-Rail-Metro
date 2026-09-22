@@ -223,11 +223,17 @@ type runResult struct {
 	Items          []item            `json:"items"`
 	Learned        bool              `json:"learned"`
 	MemoryEntries  int               `json:"memory_entries"`
+	MemoryStorage  string            `json:"memory_storage"`
+	MemoryRestored bool              `json:"memory_restored"`
+	MemorySaved    bool              `json:"memory_saved"`
+	MemoryWarning  string            `json:"memory_warning,omitempty"`
 	EvidenceScope  string            `json:"evidence_scope"`
 }
 type engine struct {
-	gate   chan struct{}
-	memory map[string][]string
+	gate     chan struct{}
+	memory   map[string][]string
+	store    *memoryStore
+	restored map[string]bool
 	// Fixtures are caller-owned only in tests. Production demo uses fresh fixtures.
 	menu func() []item
 	// Fixed at startup; HTTP callers cannot select another source.
@@ -275,6 +281,10 @@ func (e *engine) runContext(ctx context.Context, req runRequest) (out runResult,
 		}
 	}
 	defer func() { out.MemoryEntries = len(e.memory) }()
+	out.MemoryStorage = "process"
+	if e.store != nil {
+		out.MemoryStorage = "file"
+	}
 	if !req.valid() {
 		out.Reason = "invalid request"
 		return out, nil
@@ -346,7 +356,13 @@ func (e *engine) runContext(ctx context.Context, req runRequest) (out runResult,
 	var path []edge
 	if ids, ok := e.memory[key]; ok {
 		out.Mode = "memory_revalidated"
+		out.MemoryRestored = e.restored[key]
 		path, err = revalidate(g, ids, scopes, maxSteps)
+		if err != nil {
+			// A disk entry is only a hint. Discard it and plan under today's rules.
+			out.Mode, out.MemoryRestored = "graph", false
+			path, err = plan(g, scopes, maxSteps)
+		}
 	} else {
 		path, err = plan(g, scopes, maxSteps)
 	}
@@ -498,17 +514,49 @@ func (e *engine) runContext(ctx context.Context, req runRequest) (out runResult,
 		out.Reason = "goal not reached"
 		return out, nil
 	}
-	out.Status = "CONFIRMED_LOCAL"
-	out.Reason = "read-only goal reached; local bindings and result predicates checked"
-	out.Items = data
+	if err := ctx.Err(); err != nil {
+		return out, err
+	}
 	ids := make([]string, len(path))
 	for i, t := range path {
 		ids[i] = t.ID
 	}
-	if _, ok := e.memory[key]; !ok && len(e.memory) >= 16 {
-		e.memory = map[string][]string{}
+	// Stage the next cache without publishing it. Cancellation while preparing
+	// the candidate must leave both current memory and the disk file unchanged.
+	next := make(map[string][]string, len(e.memory)+1)
+	_, exists := e.memory[key]
+	evicted := !exists && len(e.memory) >= 16
+	if !evicted {
+		for k, route := range e.memory {
+			next[k] = route
+		}
 	}
-	e.memory[key] = ids
+	next[key] = ids
+	if err := ctx.Err(); err != nil {
+		return out, err
+	}
+	if e.store != nil {
+		if err := e.store.save(ctx, next); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return out, err
+			}
+			out.MemoryWarning = "route completed, but memory could not be saved to disk"
+		} else {
+			out.MemorySaved = true
+		}
+	}
+	// The save's commit boundary (or the check above in process-only mode) has
+	// passed. Late cancellation does not roll back a completed local result.
+	e.memory = next
+	if evicted {
+		e.restored = map[string]bool{}
+	}
+	if out.Mode == "graph" {
+		delete(e.restored, key)
+	}
+	out.Status = "CONFIRMED_LOCAL"
+	out.Reason = "read-only goal reached; local bindings and result predicates checked"
+	out.Items = data
 	out.Learned = true
 	return out, nil
 }
