@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -99,7 +100,7 @@ func openMemory(path string) (*memoryStore, map[string][]string, error) {
 // save deliberately uses the held file handle, not a newly resolved pathname.
 // A crash during this in-place write can lose the cache; this is not a journal.
 // Callers report errors separately from the already verified action result.
-func (s *memoryStore) save(routes map[string][]string) error {
+func (s *memoryStore) save(ctx context.Context, routes map[string][]string) error {
 	doc := memoryDocument{Protocol: memoryProtocol, Routes: routes}
 	if err := validateMemory(doc); err != nil {
 		return err
@@ -110,6 +111,12 @@ func (s *memoryStore) save(routes map[string][]string) error {
 	}
 	if len(raw) > maxMemoryBytes {
 		return fmt.Errorf("route memory exceeds byte limit")
+	}
+	// Commit boundary: observe cancellation after preparation, immediately before
+	// the first file mutation. Once writing starts, complete truncate and sync;
+	// abandoning an in-place write midway would deliberately corrupt the cache.
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if _, err := s.file.WriteAt(raw, 0); err != nil {
 		return err

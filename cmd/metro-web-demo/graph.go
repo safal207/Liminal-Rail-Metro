@@ -517,28 +517,46 @@ func (e *engine) runContext(ctx context.Context, req runRequest) (out runResult,
 	if err := ctx.Err(); err != nil {
 		return out, err
 	}
-	out.Status = "CONFIRMED_LOCAL"
-	out.Reason = "read-only goal reached; local bindings and result predicates checked"
-	out.Items = data
 	ids := make([]string, len(path))
 	for i, t := range path {
 		ids[i] = t.ID
 	}
-	if _, ok := e.memory[key]; !ok && len(e.memory) >= 16 {
-		e.memory = map[string][]string{}
-		e.restored = map[string]bool{}
+	// Stage the next cache without publishing it. Cancellation while preparing
+	// the candidate must leave both current memory and the disk file unchanged.
+	next := make(map[string][]string, len(e.memory)+1)
+	_, exists := e.memory[key]
+	evicted := !exists && len(e.memory) >= 16
+	if !evicted {
+		for k, route := range e.memory {
+			next[k] = route
+		}
 	}
-	e.memory[key] = ids
-	if out.Mode == "graph" {
-		delete(e.restored, key)
+	next[key] = ids
+	if err := ctx.Err(); err != nil {
+		return out, err
 	}
-	out.Learned = true
 	if e.store != nil {
-		if err := e.store.save(e.memory); err != nil {
+		if err := e.store.save(ctx, next); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return out, err
+			}
 			out.MemoryWarning = "route completed, but memory could not be saved to disk"
 		} else {
 			out.MemorySaved = true
 		}
 	}
+	// The save's commit boundary (or the check above in process-only mode) has
+	// passed. Late cancellation does not roll back a completed local result.
+	e.memory = next
+	if evicted {
+		e.restored = map[string]bool{}
+	}
+	if out.Mode == "graph" {
+		delete(e.restored, key)
+	}
+	out.Status = "CONFIRMED_LOCAL"
+	out.Reason = "read-only goal reached; local bindings and result predicates checked"
+	out.Items = data
+	out.Learned = true
 	return out, nil
 }

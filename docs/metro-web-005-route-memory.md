@@ -28,8 +28,9 @@ falls back to planning against the fresh graph; it does not execute its entries.
 This replanning behavior also applies to corrupted process-local route hints.
 Graph discovery failure still stops the run without using an old map.
 
-Only confirmed runs write the cache. Denied, unknown, tampered, cancelled or
-step-limited runs do not save. Existing confirmed routes can remain for a future
+Only confirmed runs write the cache. Denied, unknown, tampered or step-limited
+runs do not save. Cancellation observed before the commit boundary also prevents
+learning and writing. Existing confirmed routes can remain for a future
 permitted run. The file's contents do not prove that any prior run succeeded.
 
 ## Persistence and reporting
@@ -56,6 +57,13 @@ fails startup without replacement. Recover by stopping the reader and selecting 
 new empty file or removing the damaged cache, then learn routes again. The memory
 file is loaded only at startup; edits are not hot-reloaded. Linux pathname removal
 or replacement while running can detach the held file, so do not rename it live.
+
+Finalization stages a candidate cache before publishing it. Cancellation is checked
+after route preparation and again after JSON encoding, immediately before the
+first file write. This is the commit boundary: later cancellation does not undo
+the already verified result or interrupt write/truncate/sync. A disconnected client
+can therefore miss the response to a successfully committed run. This is cooperative
+cancellation, not a promise that a completed write can be retroactively cancelled.
 
 ## Verification
 

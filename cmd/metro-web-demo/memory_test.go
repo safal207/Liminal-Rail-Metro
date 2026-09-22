@@ -108,7 +108,7 @@ func TestMemoryPoisonedPathReplanned(t *testing.T) {
 	for key := range e.memory {
 		e.memory[key] = []string{"purchase"}
 	}
-	if err := e.store.save(e.memory); err != nil {
+	if err := e.store.save(context.Background(), e.memory); err != nil {
 		t.Fatal(err)
 	}
 	e.store.close()
@@ -121,6 +121,28 @@ func TestMemoryPoisonedPathReplanned(t *testing.T) {
 		if event.Edge.SideEffect {
 			t.Fatal("cached write executed")
 		}
+	}
+}
+
+func TestMemorySaveCancelledBeforeCommit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "memory.json")
+	e := memoryEngine(t, path)
+	if out, err := e.run(runRequest{300, "normal"}); err != nil || !out.MemorySaved {
+		t.Fatal(out, err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	// A valid empty candidate would erase the learned route if it were committed.
+	if err := e.store.save(ctx, map[string][]string{}); err != context.Canceled {
+		t.Fatal("save ignored cancellation", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) || len(e.memory) != 1 {
+		t.Fatal("cancelled save published candidate")
 	}
 }
 
