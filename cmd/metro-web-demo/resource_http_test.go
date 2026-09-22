@@ -305,3 +305,86 @@ func TestRemoteTLSValidation(t *testing.T) {
 		t.Fatal("trusted TLS failed", err)
 	}
 }
+
+// TestRemoteSelfEndpoint catches equivalent numeric spellings before serving.
+func TestRemoteSelfEndpoint(t *testing.T) {
+	for _, tc := range []struct{ origin, base, listener string }{
+		{"http://127.0.0.1:08787", "http://127.0.0.1:8787", "127.0.0.1:8787"},
+		{"http://[::ffff:127.0.0.1]:08787", "http://127.0.0.1:8787", "127.0.0.1:8787"},
+		{"http://127.0.0.1", "http://127.0.0.1", "127.0.0.1:80"},
+		{"https://127.0.0.1:00443", "https://127.0.0.1:443", "127.0.0.1:443"},
+		{"https://127.0.0.1", "https://127.0.0.1", "127.0.0.1:443"},
+	} {
+		source := testRemoteSource(t, tc.origin)
+		if source.base != tc.base || !source.targets(tc.listener) {
+			t.Fatalf("self endpoint missed: %s -> %s", tc.origin, source.base)
+		}
+		if source.targets("127.0.0.1:8788") || source.targets("127.0.0.2:8787") {
+			t.Fatal("different endpoint marked as self")
+		}
+	}
+}
+
+// TestQueuedRunCancellation holds a real publisher response open while another
+// request expires in the execution queue. Only the active run contacts it.
+func TestQueuedRunCancellation(t *testing.T) {
+	raw, manifest := remoteFixture(t)
+	entered := make(chan struct{})
+	var count atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if count.Add(1) == 1 {
+			close(entered)
+			<-r.Context().Done()
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/resource" {
+			_ = json.NewEncoder(w).Encode(manifest)
+		} else {
+			_, _ = w.Write(raw)
+		}
+	}))
+	defer server.Close()
+	e := newEngine()
+	e.resource = testRemoteSource(t, server.URL)
+	activeCtx, cancelActive := context.WithCancel(context.Background())
+	defer cancelActive()
+	activeDone := make(chan runResult, 1)
+	go func() {
+		out, _ := e.runContext(activeCtx, runRequest{300, "normal"})
+		activeDone <- out
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("active run did not reach publisher")
+	}
+	queuedCtx, cancelQueued := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancelQueued()
+	queuedDone := make(chan error, 1)
+	go func() {
+		_, err := e.runContext(queuedCtx, runRequest{300, "normal"})
+		queuedDone <- err
+	}()
+	select {
+	case err := <-queuedDone:
+		if !errors.Is(err, context.DeadlineExceeded) || count.Load() != 1 {
+			t.Fatal("queued cancellation dispatched a request", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled run still waiting for active publisher")
+	}
+	cancelActive()
+	select {
+	case out := <-activeDone:
+		if out.Status != "UNKNOWN" || out.HTTPAttempts != 1 || out.Learned {
+			t.Fatal("cancelled active run claimed success")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("active cancellation ignored")
+	}
+	resumed := mustRun(t, e, runRequest{300, "normal"})
+	if resumed.Status != "CONFIRMED_LOCAL" || resumed.HTTPAttempts != 2 || count.Load() != 3 {
+		t.Fatal("execution gate did not recover")
+	}
+}

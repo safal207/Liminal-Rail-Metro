@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"sync"
 
 	"github.com/safal207/Liminal-Rail-Metro/internal/metro"
 )
@@ -223,7 +222,7 @@ type runResult struct {
 	EvidenceScope  string            `json:"evidence_scope"`
 }
 type engine struct {
-	mu     sync.Mutex
+	gate   chan struct{}
 	memory map[string][]string
 	// Fixtures are caller-owned only in tests. Production demo uses fresh fixtures.
 	menu func() []item
@@ -232,7 +231,9 @@ type engine struct {
 }
 
 // newEngine creates isolated process-local route memory and a synthetic menu reader.
-func newEngine() *engine { return &engine{memory: map[string][]string{}, menu: demoMenu} }
+func newEngine() *engine {
+	return &engine{gate: make(chan struct{}, 1), memory: map[string][]string{}, menu: demoMenu}
+}
 
 // freshID creates a new run or action identity and propagates entropy-source failures.
 func freshID() (string, error) {
@@ -251,9 +252,13 @@ func (e *engine) run(req runRequest) (runResult, error) {
 // runContext serializes read-only execution, verifies local receipts and remembers only
 // confirmed paths. Each run snapshots fresh menu data instead of caching results.
 func (e *engine) runContext(ctx context.Context, req runRequest) (out runResult, err error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
 	out = runResult{Status: "REJECTED", Mode: "graph", Budget: req.Budget, Events: []event{}, Items: []item{}, EvidenceScope: "local fixture consistency; no external attestation or LLM"}
+	select {
+	case e.gate <- struct{}{}:
+		defer func() { <-e.gate }()
+	case <-ctx.Done():
+		return out, ctx.Err()
+	}
 	if e.resource != nil {
 		out.EvidenceScope = "local file snapshot and exact-byte SHA-256; no external attestation or LLM"
 		source := e.resource.origin()

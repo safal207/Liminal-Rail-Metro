@@ -38,11 +38,13 @@ func newHTTPResourceSource(raw string) (*httpResourceSource, error) {
 	if err != nil || u.Host == "" || u.Hostname() == "" || u.User != nil || u.Opaque != "" || u.RawQuery != "" || u.ForceQuery || strings.Contains(raw, "#") || (u.Path != "" && u.Path != "/") || u.RawPath != "" {
 		return nil, fmt.Errorf("remote resource requires an origin URL without credentials, path, query or fragment")
 	}
-	if port := u.Port(); port != "" {
+	port := u.Port()
+	if port != "" {
 		n, err := strconv.Atoi(port)
 		if err != nil || n < 1 || n > 65535 {
 			return nil, fmt.Errorf("invalid remote port")
 		}
+		port = strconv.Itoa(n)
 	} else if strings.HasSuffix(u.Host, ":") {
 		return nil, fmt.Errorf("invalid remote port")
 	}
@@ -54,6 +56,17 @@ func newHTTPResourceSource(raw string) (*httpResourceSource, error) {
 	}
 	if strings.ContainsAny(u.Host, "\\\r\n") {
 		return nil, fmt.Errorf("invalid remote origin")
+	}
+	host := strings.ToLower(u.Hostname())
+	if ip := net.ParseIP(host); ip != nil {
+		host = ip.String()
+	}
+	if port != "" {
+		u.Host = net.JoinHostPort(host, port)
+	} else if strings.Contains(host, ":") {
+		u.Host = "[" + host + "]"
+	} else {
+		u.Host = host
 	}
 	base := u.Scheme + "://" + u.Host
 	transport := &http.Transport{
@@ -70,6 +83,28 @@ func newHTTPResourceSource(raw string) (*httpResourceSource, error) {
 		Transport: transport, Timeout: remoteReadTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}, nil
+}
+
+// targets compares numeric endpoints, including default ports and mapped IPs.
+// It never resolves a publisher hostname during startup.
+func (s *httpResourceSource) targets(address string) bool {
+	u, err := url.Parse(s.base)
+	if err != nil {
+		return false
+	}
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return false
+	}
+	remotePort := u.Port()
+	if remotePort == "" {
+		remotePort = "443"
+		if u.Scheme == "http" {
+			remotePort = "80"
+		}
+	}
+	ip := net.ParseIP(u.Hostname())
+	return ip != nil && ip.Equal(net.ParseIP(host)) && remotePort == port
 }
 
 // origin records the configured publisher separately from its untrusted claims.

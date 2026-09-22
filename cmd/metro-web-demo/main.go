@@ -169,7 +169,7 @@ func main() {
 		if sourceErr != nil {
 			log.Fatal(sourceErr)
 		}
-		if source.base == "http://"+actual {
+		if source.targets(actual) {
 			log.Fatal("remote origin cannot be this server")
 		}
 		e.resource = source

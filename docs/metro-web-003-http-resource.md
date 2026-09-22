@@ -46,7 +46,11 @@ automatic retries of idempotent requests on reused idle connections.
 
 One read has a three-second overall deadline shared by both requests. Caller
 cancellation is propagated. The engine retains serialized route execution;
-queueing time is separate from the network-read deadline. `http_attempts`
+queueing time is separate from the network-read deadline, but a cancelled
+caller leaves the execution queue immediately without an upstream request.
+Numeric origins are canonicalized and an origin targeting the reader's own
+numeric endpoint is rejected at startup, including leading-zero port spellings.
+`http_attempts`
 counts requests attempted by this adapter, not confirmed server executions.
 It is normally 2; planning denial, an unreachable graph or the step limit
 produce 0 outbound attempts. `fresh_reads` counts verified complete snapshots.
