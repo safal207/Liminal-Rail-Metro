@@ -1,14 +1,72 @@
 # Liminal Rail Metro
 
-**High-speed execution and routing protocol for AI agents.**
+**Bounded agent actions, explicit routes, and checkable execution receipts.**
 
-> Agents think. Liminal Rail moves.
+Liminal Rail Metro is an experimental Go protocol engine for handing one agent
+action to an allowed target while keeping the action's identity and the
+evidence of what happened. The core flow is **Packet → Route → Receipt**: a
+chosen route is a decision, while a receipt records the observed execution.
+The project also explores **Metro Web**: a map of resources, states, and
+permitted transitions that an agent can follow and verify.
 
-Liminal Rail Metro is an experimental open protocol and Go engine for moving bounded AI-agent actions across specialized agents and tools with explicit semantic choice, traffic control, stable action identity, and verifiable execution receipts.
+**Start here:** [run the preview](#try-the-metro-web-preview) ·
+[understand the core](docs/architecture.md) ·
+[contribute](CONTRIBUTING.md) ·
+[adoption roadmap](docs/adoption-roadmap.md)
 
-The project starts from one narrow question:
+## Try the Metro Web preview
 
-> Can one agent hand off one bounded action to another agent quickly, without re-sending unnecessary context, while preserving enough identity and evidence to know what was chosen, what was authorized, and what actually executed?
+Metro Web is currently in [draft PR #39](https://github.com/safal207/Liminal-Rail-Metro/pull/39), **not on `main`**. With Git and Go 1.23.12 installed, start from a clean clone and explicitly check out its public preview branch:
+
+```sh
+git clone --branch metro-web-006-binary-resource --single-branch https://github.com/safal207/Liminal-Rail-Metro.git
+cd Liminal-Rail-Metro
+go run ./cmd/metro-web-demo -addr 127.0.0.1:8787
+```
+
+Open <http://127.0.0.1:8787/>. The local demo shows a bounded menu task,
+its graph transitions, and the route/receipt trail. Stop it with Ctrl+C. It
+uses no API key or Rust runtime.
+
+To try the experimental **read-only binary resource** path, run these in two
+terminals from the same clone. `README.md` is a sample file already present
+in the repository; you can replace it with any regular file up to 8 MiB.
+
+```sh
+# Terminal 1: publisher
+go run ./cmd/metro-web-demo -addr 127.0.0.1:8788 -asset ./README.md
+```
+
+```sh
+# Terminal 2: reader
+go run ./cmd/metro-web-demo -addr 127.0.0.1:8787 -remote-asset http://127.0.0.1:8788
+```
+
+Open <http://127.0.0.1:8787/> again to inspect the file passport and verify a
+block or the whole file. The publisher and reader only listen on local
+loopback addresses. [Stage 006 details and limits](https://github.com/safal207/Liminal-Rail-Metro/blob/metro-web-006-binary-resource/docs/metro-web-006-binary-resource.md)
+live on the preview branch.
+
+**What this proves today:** bounded local routing and evidence, a demo graph,
+and a pinned, read-only file transfer. It is not a general website browser,
+an Internet-wide discovery service, a write/upload service, or a substitute
+for independent authorization. A hash checks bytes, not the publisher's
+identity or the truth of its claims. See the [non-goals](#non-goals)
+before deploying it beyond the demo.
+
+If the preview fails on a clean machine, please [file a bug](https://github.com/safal207/Liminal-Rail-Metro/issues/new/choose)
+with your OS, Go version, exact command, and the result. The separate
+[clean-room tester issue #31](https://github.com/safal207/Liminal-Rail-Metro/issues/31)
+tests the Docker-based Developer Quickstart at its specified commit, not this
+Metro Web branch; follow that issue's commands exactly if testing it.
+
+## Why this project exists
+
+Can an agent hand off one bounded action without repeatedly sending
+unnecessary context, while preserving which target was allowed, what was
+chosen, and what actually executed? Metro is a place to test that question
+with code and reproducible evidence, rather than treating a routing decision
+as proof of execution.
 
 ## Current architecture
 
@@ -538,12 +596,15 @@ go test -race ./internal/decisionplane ./internal/lifetrastation
 
 ## Status
 
-`v0.6` — CI-verified bounded fast decision plane with packet/state/choice provenance binding, complete probabilistic-choice validation, System-2 escalation, side-effect approval gating, race-checked transport regressions, and measured local Go gate overhead.
-
-The Mirror Boundary / proof-carrying rail remains experimental until its branch CI receipts are green and the work is merged.
+`main` contains the bounded Packet → Route → Receipt core, decision-plane and
+transport experiments, and several scoped proof/authority demos documented
+above. These are not a single production agent network. Metro Web is still a
+separate draft PR stack; follow its branch and stage docs for current behavior.
 
 Contributions should preserve the narrow claim ceiling: make each boundary independently verifiable before making the system more ambitious.
 
 ## License
 
-MIT
+There is no license file on `main` yet. An MIT license is proposed in
+[PR #32](https://github.com/safal207/Liminal-Rail-Metro/pull/32); check its
+merge status before relying on that license for reuse.
