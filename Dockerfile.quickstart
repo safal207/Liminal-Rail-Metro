@@ -1,0 +1,14 @@
+FROM golang:1.27.1 AS build
+WORKDIR /src
+ENV GOTOOLCHAIN=local
+COPY go.mod go.sum ./
+COPY internal/ ./internal/
+COPY cmd/liminal-rail/ ./cmd/liminal-rail/
+RUN CGO_ENABLED=0 go build -mod=readonly -trimpath -ldflags="-s -w" -o /out/liminal-rail ./cmd/liminal-rail
+
+FROM scratch
+COPY --from=build /out/liminal-rail /liminal-rail
+USER 65532:65532
+EXPOSE 8788
+ENTRYPOINT ["/liminal-rail"]
+CMD ["serve", "-listen", "0.0.0.0:8788", "-container"]

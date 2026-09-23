@@ -1,0 +1,11 @@
+**
+!go.mod
+!go.sum
+!internal/
+!internal/**/
+!internal/**/*.go
+!cmd/
+!cmd/liminal-rail/
+!cmd/liminal-rail/*.go
+!Dockerfile.quickstart
+!Dockerfile.quickstart.dockerignore
