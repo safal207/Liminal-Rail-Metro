@@ -19,6 +19,7 @@ import (
 const (
 	assetProtocol         = "metro.web.asset.v0.1"
 	assetContentPath      = "/api/asset/content"
+	assetFullPath         = "/api/asset/full"
 	assetChunkBytes       = 64 << 10
 	maxAssetBytes         = 8 << 20
 	maxAssetPassportBytes = 16 << 10
@@ -71,6 +72,7 @@ func assetChunkSize(size, index int) int {
 }
 
 func manifestForAsset(raw []byte) assetManifest {
+	wholeHash := assetHash(raw)
 	chunks := make([]string, 0, assetChunkCount(len(raw)))
 	for start := 0; start < len(raw); start += assetChunkBytes {
 		end := start + assetChunkBytes
@@ -81,7 +83,7 @@ func manifestForAsset(raw []byte) assetManifest {
 	}
 	return assetManifest{
 		Protocol: assetProtocol, ID: "asset", MediaType: "application/octet-stream",
-		Size: len(raw), SHA256: assetHash(raw), Version: "sha256:" + assetHash(raw), ChunkSize: assetChunkBytes,
+		Size: len(raw), SHA256: wholeHash, Version: "sha256:" + wholeHash, ChunkSize: assetChunkBytes,
 		ChunkHash: chunks, Href: assetContentPath,
 	}
 }
@@ -202,10 +204,76 @@ func (s *assetService) readChunk(parent context.Context, hash string, index int)
 	return assetManifest{}, nil, errRemoteInvalid
 }
 
+// readFull verifies the whole requested version in one bounded file read or
+// one passport plus one pinned network response. The reader checks both the
+// whole digest and every chunk digest before releasing any downloaded bytes.
+func (s *assetService) readFull(parent context.Context, hash string) ([]byte, error) {
+	if s == nil || !validAssetHash(hash) {
+		return nil, errRemoteInvalid
+	}
+	if s.local != nil && s.remote == nil {
+		raw, err := s.local.readBytes(parent, maxAssetBytes)
+		if err != nil || parent.Err() != nil {
+			return nil, errRemoteIncomplete
+		}
+		if assetHash(raw) != hash {
+			return nil, errRemoteChanged
+		}
+		return raw, nil
+	}
+	if s.remote != nil && s.local == nil {
+		ctx, cancel := context.WithTimeout(parent, remoteReadTimeout)
+		defer cancel()
+		if ctx.Err() != nil {
+			return nil, errRemoteIncomplete
+		}
+		passport, err := s.remote.fetch(ctx, "/api/asset", maxAssetPassportBytes)
+		if err != nil {
+			return nil, err
+		}
+		manifest, err := parseAssetManifest(passport)
+		if err != nil {
+			return nil, err
+		}
+		if hash != manifest.SHA256 {
+			return nil, errRemoteChanged
+		}
+		path := assetFullPath + "?sha256=" + manifest.SHA256
+		raw, err := s.remote.fetchAssetBytes(ctx, path, manifest.Size)
+		if err != nil {
+			return nil, err
+		}
+		if assetHash(raw) != manifest.SHA256 {
+			return nil, errRemoteInvalid
+		}
+		for index, expected := range manifest.ChunkHash {
+			start := index * assetChunkBytes
+			end := start + assetChunkSize(manifest.Size, index)
+			if assetHash(raw[start:end]) != expected {
+				return nil, errRemoteInvalid
+			}
+		}
+		if ctx.Err() != nil {
+			return nil, errRemoteIncomplete
+		}
+		return raw, nil
+	}
+	return nil, errRemoteInvalid
+}
+
 // fetchAssetChunk shares the origin, transport and no-redirect client policy
 // with menu reads, but requires exact binary media and a bounded chunk body.
 func (s *httpResourceSource) fetchAssetChunk(ctx context.Context, path string, expected int) ([]byte, error) {
 	if expected < 1 || expected > assetChunkBytes {
+		return nil, errRemoteInvalid
+	}
+	return s.fetchAssetBytes(ctx, path, expected)
+}
+
+// fetchAssetBytes uses the existing fixed-origin client. A full download is
+// capped at 8 MiB; a chunk caller additionally caps its own expected length.
+func (s *httpResourceSource) fetchAssetBytes(ctx context.Context, path string, expected int) ([]byte, error) {
+	if expected < 0 || expected > maxAssetBytes {
 		return nil, errRemoteInvalid
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.base+path, nil)
@@ -242,6 +310,9 @@ func (s *httpResourceSource) fetchAssetChunk(ctx context.Context, path string, e
 	if len(raw) != expected {
 		return nil, errRemoteInvalid
 	}
+	if ctx.Err() != nil {
+		return nil, errRemoteIncomplete
+	}
 	return raw, nil
 }
 
@@ -275,6 +346,18 @@ func parseAssetQuery(raw string, content bool) (string, int, error) {
 	return hash, index, nil
 }
 
+func parseAssetFullQuery(raw string) (string, error) {
+	query, err := url.ParseQuery(raw)
+	if err != nil || len(query) != 1 || len(query["sha256"]) != 1 {
+		return "", errRemoteInvalid
+	}
+	hash := query.Get("sha256")
+	if !validAssetHash(hash) {
+		return "", errRemoteInvalid
+	}
+	return hash, nil
+}
+
 // serve publishes a single operator-selected asset. The content endpoint is
 // always an attachment with a generic filename, never interpreted as HTML.
 func (s *assetService) serve(w http.ResponseWriter, r *http.Request) {
@@ -287,7 +370,8 @@ func (s *assetService) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	content := r.URL.Path == assetContentPath
-	if !content && r.URL.Path != "/api/asset" {
+	full := r.URL.Path == assetFullPath
+	if !content && !full && r.URL.Path != "/api/asset" {
 		http.NotFound(w, r)
 		return
 	}
@@ -295,7 +379,14 @@ func (s *assetService) serve(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid asset query", http.StatusBadRequest)
 		return
 	}
-	hash, index, err := parseAssetQuery(r.URL.RawQuery, content)
+	var hash string
+	var index int
+	var err error
+	if full {
+		hash, err = parseAssetFullQuery(r.URL.RawQuery)
+	} else {
+		hash, index, err = parseAssetQuery(r.URL.RawQuery, content)
+	}
 	if err != nil {
 		http.Error(w, "invalid asset query", http.StatusBadRequest)
 		return
@@ -304,7 +395,7 @@ func (s *assetService) serve(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "reader chains are unsupported", http.StatusLoopDetected)
 		return
 	}
-	if !content {
+	if !content && !full {
 		manifest, err := s.manifest(r.Context())
 		if err != nil {
 			assetError(w, err)
@@ -313,6 +404,20 @@ func (s *assetService) serve(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Metro-Asset-Whole-Verified", strconv.FormatBool(s.local != nil))
 		_ = json.NewEncoder(w).Encode(manifest)
+		return
+	}
+	if full {
+		raw, err := s.readFull(r.Context(), hash)
+		if err != nil {
+			assetError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", "attachment; filename=\"metro-asset.bin\"")
+		w.Header().Set("Content-Length", strconv.Itoa(len(raw)))
+		w.Header().Set("ETag", `"`+hash+`"`)
+		w.Header().Set("X-Metro-Asset-Whole-Verified", "true")
+		_, _ = w.Write(raw)
 		return
 	}
 	manifest, chunk, err := s.readChunk(r.Context(), hash, index)

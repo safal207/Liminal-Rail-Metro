@@ -17,7 +17,7 @@ go run ./cmd/metro-web-demo -addr 127.0.0.1:8787 -remote-asset http://127.0.0.1:
 ```
 
 Open the reader on `http://127.0.0.1:8787`. Refresh the passport, verify one
-block, or fetch all blocks to verify the whole file. Both servers bind only to
+block, or fetch one bounded whole-file snapshot to verify the complete file. Both servers bind only to
 IPv4 loopback. The publisher's file is fixed at startup; API callers cannot
 select another path. Remote origins are fixed at startup and require HTTPS
 except for literal loopback IPs. Client requests cannot supply an arbitrary URL.
@@ -37,12 +37,18 @@ hash differs from the pinned hash. Duplicate/extra query keys, malformed
 hashes, out-of-range chunk indices, redirects, compressed responses and
 oversized data are refused. No automatic transport retry is performed.
 
+`GET /api/asset/full?sha256=<whole-hash>` returns one whole-file snapshot
+(at most 8 MiB) with attachment headers. A stale hash returns HTTP 409.
+The reader fetches one fresh passport and one fixed-origin snapshot under a
+shared deadline, then validates the exact size, whole SHA-256 and every chunk
+digest. This path avoids rereading the file for each block during a full check.
+
 A remote reader first validates the bounded passport, then asks its fixed
 publisher for the selected pinned block. It checks the exact block length and
 SHA-256 before relaying the bytes. A checked block proves agreement with the
 publisher's passport; it does **not** verify the whole-file digest independently.
-The browser's “Проверить весь файл” action fetches every block, verifies each
-block, concatenates their bytes and checks the total size and whole SHA-256.
+The browser's “Проверить весь файл” action fetches the full snapshot once,
+then checks its total size, whole SHA-256 and each advertised block digest.
 The passport itself is a publisher claim, not an external signature or proof
 of business truth. No file bytes are interpreted or executed by the server.
 
@@ -57,7 +63,9 @@ loopback Host/Origin guard.
 
 The publisher currently reads the bounded whole file to compute a fresh
 passport on each request. This trades local I/O for simple version pinning;
-chunk requests save network transfer but are not constant-I/O on the publisher.
+selected chunk requests save network transfer but are not constant-I/O on the
+publisher. A full check uses one bounded snapshot instead of repeated chunk
+requests.
 The 8 MiB cap, one configured file, no general graph action for that file, and
 no write/upload capability are explicit limits of this stage. Later graph
 adapters can refer to this resource without treating publisher-declared

@@ -39,7 +39,7 @@ func handler(e *engine, host string) http.Handler {
 			http.Error(w, "invalid origin", http.StatusForbidden)
 			return
 		}
-		if e.asset != nil && r.URL.Path != "/" && r.URL.Path != "/api/asset" && r.URL.Path != "/api/asset/content" {
+		if e.asset != nil && r.URL.Path != "/" && r.URL.Path != "/api/asset" && r.URL.Path != "/api/asset/content" && r.URL.Path != "/api/asset/full" {
 			http.NotFound(w, r)
 			return
 		}
@@ -79,7 +79,7 @@ func handler(e *engine, host string) http.Handler {
 			e.serveGraph(w, r)
 		case "/api/resource", "/api/resource/content":
 			e.serveResource(w, r)
-		case "/api/asset", "/api/asset/content":
+		case "/api/asset", "/api/asset/content", "/api/asset/full":
 			if e.asset == nil {
 				http.NotFound(w, r)
 				return

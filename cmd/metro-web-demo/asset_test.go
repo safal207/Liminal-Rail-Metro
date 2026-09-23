@@ -75,12 +75,23 @@ func TestAssetLocalBinaryAndPin(t *testing.T) {
 	if !bytes.Equal(collected, raw) {
 		t.Fatal("binary bytes changed across chunks")
 	}
+	fullURL := assetFullPath + "?sha256=" + passport.SHA256
+	full := assetRequest(t, service, fullURL)
+	if full.Code != 200 || !bytes.Equal(full.Body.Bytes(), raw) ||
+		full.Header().Get("Content-Type") != "application/octet-stream" ||
+		full.Header().Get("Content-Disposition") != `attachment; filename="metro-asset.bin"` ||
+		full.Header().Get("X-Metro-Asset-Whole-Verified") != "true" {
+		t.Fatal("full binary response was not verified and safely attached", full.Code)
+	}
 	if err := os.WriteFile(path, append(raw, 0x80), 0600); err != nil {
 		t.Fatal(err)
 	}
 	old := assetRequest(t, service, passport.Href+"?sha256="+passport.SHA256+"&index=1")
 	if old.Code != http.StatusConflict {
 		t.Fatal("stale whole-file pin accepted", old.Code)
+	}
+	if oldFull := assetRequest(t, service, fullURL); oldFull.Code != http.StatusConflict {
+		t.Fatal("stale full-file pin accepted", oldFull.Code)
 	}
 	if err := os.WriteFile(path, make([]byte, maxAssetBytes), 0600); err != nil {
 		t.Fatal(err)
@@ -91,11 +102,18 @@ func TestAssetLocalBinaryAndPin(t *testing.T) {
 		maximum.Size != maxAssetBytes || len(maximum.ChunkHash) != 128 || !maximum.valid() {
 		t.Fatal("exact 8 MiB boundary rejected", limit.Code)
 	}
+	maxFull := assetRequest(t, service, assetFullPath+"?sha256="+maximum.SHA256)
+	if maxFull.Code != 200 || maxFull.Body.Len() != maxAssetBytes {
+		t.Fatal("exact 8 MiB full download rejected", maxFull.Code, maxFull.Body.Len())
+	}
 	if err := os.WriteFile(path, make([]byte, maxAssetBytes+1), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if tooLarge := assetRequest(t, service, "/api/asset"); tooLarge.Code != http.StatusServiceUnavailable {
 		t.Fatal("oversized local asset accepted", tooLarge.Code)
+	}
+	if tooLarge := assetRequest(t, service, assetFullPath+"?sha256="+maximum.SHA256); tooLarge.Code != http.StatusServiceUnavailable {
+		t.Fatal("oversized full asset accepted", tooLarge.Code)
 	}
 }
 
@@ -115,8 +133,14 @@ func TestAssetEmptyAndStrictQuery(t *testing.T) {
 	if w := assetRequest(t, service, passport.Href+"?sha256="+passport.SHA256+"&index=0"); w.Code != 400 {
 		t.Fatal("empty asset exposed a chunk", w.Code)
 	}
+	if full := assetRequest(t, service, assetFullPath+"?sha256="+passport.SHA256); full.Code != 200 || full.Body.Len() != 0 || full.Header().Get("X-Metro-Asset-Whole-Verified") != "true" {
+		t.Fatal("empty full download failed", full.Code)
+	}
 	for _, target := range []string{
 		"/api/asset?", "/api/asset?path=secret", "/api/asset/content", "/api/asset/content?sha256=" + passport.SHA256,
+		assetFullPath, assetFullPath + "?", assetFullPath + "?sha256=" + passport.SHA256 + "&index=0",
+		assetFullPath + "?sha256=" + strings.ToUpper(passport.SHA256),
+		assetFullPath + "?sha256=" + passport.SHA256 + "&sha256=" + passport.SHA256,
 		passport.Href + "?sha256=" + passport.SHA256 + "&index=00",
 		passport.Href + "?sha256=" + passport.SHA256 + "&index=-1",
 		passport.Href + "?sha256=" + passport.SHA256 + "&index=0&path=secret",
@@ -187,6 +211,173 @@ func TestAssetRemoteSelectedChunkAndChain(t *testing.T) {
 	secondReader := &assetService{remote: testRemoteSource(t, assetPublisher(t, reader).URL)}
 	if chained := assetRequest(t, secondReader, "/api/asset"); chained.Code != http.StatusBadGateway {
 		t.Fatal("reader-to-reader chain forwarded", chained.Code)
+	}
+}
+
+// A maximum-size download requires one passport and one full-byte request.
+// The reader checks the whole digest and all 128 chunk digests before relay.
+func TestAssetRemoteFullUsesOneTransfer(t *testing.T) {
+	raw := bytes.Repeat([]byte{0, 0xff, '<', '>'}, maxAssetBytes/4)
+	passport := manifestForAsset(raw)
+	var manifests, fulls, chunks atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Metro-Resource-Read") != "1" {
+			t.Error("reader marker missing")
+		}
+		switch r.URL.Path {
+		case "/api/asset":
+			manifests.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(passport)
+		case assetFullPath:
+			fulls.Add(1)
+			if r.URL.RawQuery != "sha256="+passport.SHA256 {
+				t.Error("full request lost its version pin")
+			}
+			w.Header().Set("Content-Type", "application/octet-stream")
+			_, _ = w.Write(raw)
+		case assetContentPath:
+			chunks.Add(1)
+			http.Error(w, "unexpected chunk read", 500)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	reader := &assetService{remote: testRemoteSource(t, server.URL)}
+	w := assetRequest(t, reader, assetFullPath+"?sha256="+passport.SHA256)
+	if w.Code != 200 || !bytes.Equal(w.Body.Bytes(), raw) ||
+		w.Header().Get("X-Metro-Asset-Whole-Verified") != "true" ||
+		manifests.Load() != 1 || fulls.Load() != 1 || chunks.Load() != 0 {
+		t.Fatalf("full transfer was not bounded to two requests: code=%d manifest=%d full=%d chunks=%d", w.Code, manifests.Load(), fulls.Load(), chunks.Load())
+	}
+}
+
+func TestAssetRemoteEmptyFull(t *testing.T) {
+	requireFileResources(t)
+	path := filepath.Join(t.TempDir(), "empty.bin")
+	if err := os.WriteFile(path, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	publisher := assetPublisher(t, assetFileService(t, path))
+	reader := &assetService{remote: testRemoteSource(t, publisher.URL)}
+	w := assetRequest(t, reader, assetFullPath+"?sha256="+assetHash(nil))
+	if w.Code != 200 || w.Body.Len() != 0 || w.Header().Get("X-Metro-Asset-Whole-Verified") != "true" {
+		t.Fatal("empty remote full asset failed", w.Code)
+	}
+}
+
+func TestAssetRemoteFullRejectsUntrustedBytes(t *testing.T) {
+	raw := bytes.Repeat([]byte{0, 0xff, '<'}, assetChunkBytes/3+2)
+	good := manifestForAsset(raw)
+	cases := []struct {
+		name       string
+		change     func(*assetManifest)
+		respond    func(http.ResponseWriter)
+		status     int
+		requestNum int32
+	}{
+		{"forged whole hash", func(m *assetManifest) { m.SHA256 = assetHash([]byte("different")); m.Version = "sha256:" + m.SHA256 }, nil, 502, 2},
+		{"forged chunk hash", func(m *assetManifest) { m.ChunkHash[0] = assetHash([]byte("different")) }, nil, 502, 2},
+		{"oversized claim", func(m *assetManifest) { m.Size = maxAssetBytes + 1 }, nil, 502, 1},
+		{"truncated", nil, func(w http.ResponseWriter) {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			_, _ = w.Write(raw[:len(raw)-1])
+		}, 502, 2},
+		{"overlong", nil, func(w http.ResponseWriter) {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			_, _ = w.Write(append(append([]byte{}, raw...), 0))
+		}, 502, 2},
+		{"HTML media", nil, func(w http.ResponseWriter) { w.Header().Set("Content-Type", "text/html"); _, _ = w.Write(raw) }, 502, 2},
+		{"encoded body", nil, func(w http.ResponseWriter) {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Content-Encoding", "gzip")
+			_, _ = w.Write(raw)
+		}, 502, 2},
+		{"redirect", nil, func(w http.ResponseWriter) { w.Header().Set("Location", "/elsewhere"); w.WriteHeader(302) }, 502, 2},
+		{"changed version", nil, func(w http.ResponseWriter) { w.WriteHeader(http.StatusConflict) }, 409, 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			manifest := good
+			manifest.ChunkHash = append([]string(nil), good.ChunkHash...)
+			if tc.change != nil {
+				tc.change(&manifest)
+			}
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				if r.Header.Get("X-Metro-Resource-Read") != "1" {
+					t.Error("reader marker missing")
+				}
+				switch r.URL.Path {
+				case "/api/asset":
+					w.Header().Set("Content-Type", "application/json")
+					_ = json.NewEncoder(w).Encode(manifest)
+				case assetFullPath:
+					if r.URL.RawQuery != "sha256="+manifest.SHA256 {
+						t.Error("unbounded full request URL")
+					}
+					if tc.respond == nil {
+						w.Header().Set("Content-Type", "application/octet-stream")
+						_, _ = w.Write(raw)
+					} else {
+						tc.respond(w)
+					}
+				default:
+					t.Error("reader requested unexpected path", r.URL.Path)
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			reader := &assetService{remote: testRemoteSource(t, server.URL)}
+			w := assetRequest(t, reader, assetFullPath+"?sha256="+manifest.SHA256)
+			if w.Code != tc.status || w.Body.Len() > 256 || calls.Load() != tc.requestNum {
+				t.Fatalf("invalid full response escaped: %d bytes=%d requests=%d", w.Code, w.Body.Len(), calls.Load())
+			}
+		})
+	}
+}
+
+func TestAssetRemoteFullCancellation(t *testing.T) {
+	passport := manifestForAsset([]byte{0, 0xff, '<'})
+	var calls atomic.Int32
+	entered := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.URL.Path == "/api/asset" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(passport)
+			return
+		}
+		close(entered)
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	reader := &assetService{remote: testRemoteSource(t, server.URL)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r := httptest.NewRequestWithContext(ctx, http.MethodGet, assetFullPath+"?sha256="+passport.SHA256, nil)
+	w := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		reader.serve(w, r)
+		close(done)
+	}()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("full read did not reach publisher")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancelled full read did not stop")
+	}
+	if w.Code != http.StatusServiceUnavailable || w.Body.Len() > 256 || calls.Load() != 2 {
+		t.Fatal("cancelled full read leaked bytes or retried", w.Code, calls.Load())
 	}
 }
 
