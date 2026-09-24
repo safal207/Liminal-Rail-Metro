@@ -196,13 +196,5 @@ func writeChainHeadAtomic(path string, head ChainHead) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return err
-	}
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
+	return commitChainHead(tmpName, path)
 }

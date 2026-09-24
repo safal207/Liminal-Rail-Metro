@@ -83,7 +83,21 @@ rotation_hash
 head_hash
 ```
 
-On first acceptance the head is durably written with file fsync, atomic rename and directory fsync.
+On first acceptance and every advance, the head is written to a temporary file in
+the state directory and file-synced before replacement. Unix commits with atomic
+rename followed by directory fsync. Windows commits with `MoveFileExW` using
+`MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH`, because `os.File.Sync` on
+the parent directory returns `Access is denied` there. Microsoft documents that
+the Windows call waits until the move reaches disk, with an explicit flush
+guarantee for moves implemented as copy-and-delete. The temporary file and
+destination are on the same volume and the copy-allowed flag is absent.
+
+Any commit error prevents the resolver from opening. Since an error can occur
+after a namespace change, callers must re-read the stored head before retrying;
+they cannot assume the previous head remains. Neither Windows API documentation
+nor these tests establish power-loss atomicity of replacement across every
+filesystem and device. Remote filesystems and devices that misreport completed
+flushes are outside this proof.
 
 On restart:
 
