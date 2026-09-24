@@ -1,14 +1,93 @@
 # Liminal Rail Metro
 
-**High-speed execution and routing protocol for AI agents.**
+**Bounded agent actions, explicit routes, and checkable execution receipts.**
 
-> Agents think. Liminal Rail moves.
+Liminal Rail Metro is an experimental Go protocol engine for handing one agent
+action to an allowed target while keeping the action's identity and the
+evidence of what happened. The core flow is **Packet → Route → Receipt**: a
+chosen route is a decision, while a receipt records the observed execution.
+The project also explores **Metro Web**: a map of resources, states, and
+permitted transitions that an agent can follow and verify.
 
-Liminal Rail Metro is an experimental open protocol and Go engine for moving bounded AI-agent actions across specialized agents and tools with explicit semantic choice, traffic control, stable action identity, and verifiable execution receipts.
+**Start here:** [run the preview](#try-the-metro-web-preview) ·
+[understand the core](docs/architecture.md) ·
+[contribute](CONTRIBUTING.md) ·
+[adoption roadmap](docs/adoption-roadmap.md)
 
-The project starts from one narrow question:
+## Try the Metro Web preview
 
-> Can one agent hand off one bounded action to another agent quickly, without re-sending unnecessary context, while preserving enough identity and evidence to know what was chosen, what was authorized, and what actually executed?
+The resource-map demo is in [draft PR #41](https://github.com/safal207/Liminal-Rail-Metro/pull/41),
+with a separate checker in [draft PR #42](https://github.com/safal207/Liminal-Rail-Metro/pull/42).
+Neither is on `main`. With Git and Go 1.23.12 installed, start from the
+exact reviewed preview commit:
+
+```sh
+git clone --branch metro-web-008-independent-checker --single-branch https://github.com/safal207/Liminal-Rail-Metro.git
+cd Liminal-Rail-Metro
+git switch --detach 6c01c12f96997cef58b149d299c76de8b1fffa05
+```
+
+For a quick first check, run this one command from the cloned repository:
+
+```sh
+go test -count=1 -run '^TestCheckerAgainstRealPublisher$' -v ./cmd/metro-web-check
+```
+
+Look for `PASS`. This test builds and starts a real publisher on a temporary
+loopback port and checks the `guide → spec` route in the test process. It does
+not run the separate checker executable; use the steps below to verify that
+client against a publisher in another process.
+
+Start the example publisher in one terminal. It serves three operator-selected
+files and a read-only graph on local loopback:
+
+```sh
+go run ./cmd/metro-web-demo -addr 127.0.0.1:8788 -site-config ./examples/metro-web/site-007/site.json
+```
+
+In a second terminal, ask the independent client to reach `spec`:
+
+```sh
+go run ./cmd/metro-web-check -origin http://127.0.0.1:8788 -target spec
+```
+
+The result should say `VERIFIED_BYTES_AND_TRANSCRIPT` with two ordered steps:
+`open_guide → open_spec`. Each step names a resource hash and receipt.
+Try `-target page` to take the other two-step path. To view the graph and
+navigate it in a local browser, keep the publisher running and start the demo
+reader in another terminal:
+
+```sh
+go run ./cmd/metro-web-demo -addr 127.0.0.1:8787 -remote-site http://127.0.0.1:8788
+```
+
+Open <http://127.0.0.1:8787/>, choose `spec` or `page`, and run the route.
+Stop each server with Ctrl+C. No API key or Rust runtime is needed.
+[Map and UI contract](https://github.com/safal207/Liminal-Rail-Metro/blob/6c01c12f96997cef58b149d299c76de8b1fffa05/docs/metro-web-007-site-map.md) ·
+[independent checker limits](https://github.com/safal207/Liminal-Rail-Metro/blob/6c01c12f96997cef58b149d299c76de8b1fffa05/docs/metro-web-008-independent-checker.md).
+
+**What this proves today:** the client can find a bounded path, independently
+check fetched bytes, and cross-check the publisher's route and receipt
+transcript. The output explicitly says `run_freshness_verified: false` and
+`publisher_identity_verified: false`: a consistent precomputed transcript
+could pass. Metro Web is not a general website browser, an Internet-wide
+discovery service, a write/upload service, or a source of authorization.
+See the [non-goals](#non-goals) before using it beyond the demo.
+
+If this is your first run, please [report what worked or blocked you in issue #43](https://github.com/safal207/Liminal-Rail-Metro/issues/43).
+If the preview fails, you can also [file a bug](https://github.com/safal207/Liminal-Rail-Metro/issues/new/choose)
+with your OS, Go version, exact commit, command, and result. The separate
+[clean-room tester issue #31](https://github.com/safal207/Liminal-Rail-Metro/issues/31)
+tests the Docker-based Developer Quickstart at its specified commit, not this
+Metro Web preview; follow that issue's commands exactly if testing it.
+
+## Why this project exists
+
+Can an agent hand off one bounded action without repeatedly sending
+unnecessary context, while preserving which target was allowed, what was
+chosen, and what actually executed? Metro is a place to test that question
+with code and reproducible evidence, rather than treating a routing decision
+as proof of execution.
 
 ## Current architecture
 
@@ -538,12 +617,16 @@ go test -race ./internal/decisionplane ./internal/lifetrastation
 
 ## Status
 
-`v0.6` — CI-verified bounded fast decision plane with packet/state/choice provenance binding, complete probabilistic-choice validation, System-2 escalation, side-effect approval gating, race-checked transport regressions, and measured local Go gate overhead.
-
-The Mirror Boundary / proof-carrying rail remains experimental until its branch CI receipts are green and the work is merged.
+`main` contains the bounded Packet → Route → Receipt core, decision-plane and
+transport experiments, and several scoped proof/authority demos documented
+above. These are not a single production agent network. Metro Web is still a
+separate draft PR stack; follow its branch and stage docs for current behavior.
 
 Contributions should preserve the narrow claim ceiling: make each boundary independently verifiable before making the system more ambitious.
 
 ## License
 
-MIT
+Check the root `LICENSE` file in the revision you use before reusing the code.
+The MIT license text is tracked in
+[PR #32](https://github.com/safal207/Liminal-Rail-Metro/pull/32); if your
+revision has no license file, do not assume that MIT terms apply.
