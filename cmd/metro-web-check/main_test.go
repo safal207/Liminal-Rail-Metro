@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -8,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -74,11 +74,13 @@ func newFixture() *publisherFixture {
 	for i, e := range m.Edges {
 		r := resources[i]
 		id := strings.Repeat(string(rune('a'+i)), 32)
+		createdAt := fmt.Sprintf("2026-09-24T10:00:%02dZ", i*2)
+		completedAt := fmt.Sprintf("2026-09-24T10:00:%02dZ", i*2+1)
 		inputs := map[string]any{"edge": e.ID, "from": e.From, "map_hash": mapHash, "resource_id": r.ID, "resource_sha256": r.SHA256, "scope": scope, "to": e.To}
 		result := map[string]any{"map_hash": mapHash, "resource_id": r.ID, "sha256": r.SHA256, "size_bytes": float64(r.Size), "state": e.To}
-		p := packet{Protocol: "metro.packet.v0.1", ActionID: id, SourceAgent: "metro-web-demo", CreatedAt: "2026-09-24T10:00:00Z", Goal: "open resource spec", Action: action{Kind: "open_resource", Inputs: inputs}, AllowedTargets: []string{"metro-site-reader"}, Constraints: constraints{TimeoutMS: 10000}}
-		rt := route{Protocol: "metro.route.v0.1", RouteID: "route-" + id, ActionID: id, RouterID: "metro-web-demo", DecisionMode: "deterministic", SelectedTarget: "metro-site-reader", Candidates: []candidate{{Target: "metro-site-reader", Score: 1}}, Confidence: 1, PolicyRef: "policy://demo/route-by-action-kind", DecidedAt: "2026-09-24T10:00:00Z"}
-		rc := &receipt{Protocol: "metro.receipt.v0.1", ReceiptID: "receipt-" + id, ActionID: id, RouteID: rt.RouteID, ExecutorID: "metro-site-reader", Status: "SUCCEEDED", HashAlgorithm: "sha256", InputHash: fixtureHash(inputs), ResultHash: fixtureHash(result), ResultRef: "sha256:" + r.SHA256, StartedAt: "2026-09-24T10:00:00Z", CompletedAt: "2026-09-24T10:00:01Z"}
+		p := packet{Protocol: "metro.packet.v0.1", ActionID: id, SourceAgent: "metro-web-demo", CreatedAt: createdAt, Goal: "open resource spec", Action: action{Kind: "open_resource", Inputs: inputs}, AllowedTargets: []string{"metro-site-reader"}, Constraints: constraints{TimeoutMS: 10000}}
+		rt := route{Protocol: "metro.route.v0.1", RouteID: "route-" + id, ActionID: id, RouterID: "metro-web-demo", DecisionMode: "deterministic", SelectedTarget: "metro-site-reader", Candidates: []candidate{{Target: "metro-site-reader", Score: 1}}, Confidence: 1, PolicyRef: "policy://demo/route-by-action-kind", DecidedAt: createdAt}
+		rc := &receipt{Protocol: "metro.receipt.v0.1", ReceiptID: "receipt-" + id, ActionID: id, RouteID: rt.RouteID, ExecutorID: "metro-site-reader", Status: "SUCCEEDED", HashAlgorithm: "sha256", InputHash: fixtureHash(inputs), ResultHash: fixtureHash(result), ResultRef: "sha256:" + r.SHA256, StartedAt: createdAt, CompletedAt: completedAt}
 		run.Events = append(run.Events, event{Edge: e, Status: "CONFIRMED_LOCAL", Packet: p, Route: rt, Receipt: rc, Result: result})
 		run.Resources = append(run.Resources, runResource{ID: r.ID, SHA256: r.SHA256, Size: r.Size})
 	}
@@ -239,6 +241,27 @@ func TestCheckerRejectsHostileHTTPResponses(t *testing.T) {
 	}
 }
 
+func TestCheckerRejectsNonCausalRunTimes(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		mutate func(*runResult)
+	}{
+		{"route before packet", func(run *runResult) { run.Events[0].Packet.CreatedAt = "2026-09-24T10:00:01Z" }},
+		{"receipt before route", func(run *runResult) { run.Events[0].Receipt.StartedAt = "2026-09-24T09:59:59Z" }},
+		{"receipt completion before start", func(run *runResult) { run.Events[0].Receipt.CompletedAt = "2026-09-24T09:59:59Z" }},
+		{"next packet before prior receipt", func(run *runResult) { run.Events[1].Packet.CreatedAt = "2026-09-24T10:00:00Z" }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture()
+			tt.mutate(&f.runDoc)
+			_, err := runFixture(t, f)
+			if err == nil || !strings.Contains(err.Error(), "causally ordered") {
+				t.Fatalf("accepted impossible event sequence or rejected for the wrong reason: %v", err)
+			}
+		})
+	}
+}
+
 func TestCheckerOriginPolicy(t *testing.T) {
 	for _, raw := range []string{"http://example.com", "http://localhost:8080", "https://user:pass@example.com", "https://example.com/path", "https://example.com?x=1", "https://example.com#frag", "file:///tmp/x", "http://127.0.0.1:0"} {
 		t.Run(raw, func(t *testing.T) {
@@ -253,6 +276,29 @@ func TestCheckerOriginPolicy(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestCheckerUsesCallerDeadlineForBodyTransfer(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{"))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	c, err := newChecker(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.client.Timeout != 0 {
+		t.Fatalf("per-request timeout %s can truncate a valid bounded asset before the caller deadline", c.client.Timeout)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err = c.mapAt(ctx)
+	if err == nil || failureStatus(err) != "UNKNOWN" {
+		t.Fatalf("incomplete body must be bounded by caller context and remain uncertain: %v", err)
 	}
 }
 
@@ -285,27 +331,51 @@ func TestCheckerAgainstRealPublisher(t *testing.T) {
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build actual publisher: %v\n%s", err, output)
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := listener.Addr().String()
-	_ = listener.Close()
 	config, err := filepath.Abs("../../examples/metro-web/site-007/site.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	serverCtx, stopServer := context.WithCancel(context.Background())
 	defer stopServer()
-	server := exec.CommandContext(serverCtx, bin, "-addr", addr, "-site-config", config)
-	var serverOutput bytes.Buffer
-	server.Stdout = &serverOutput
-	server.Stderr = &serverOutput
+	server := exec.CommandContext(serverCtx, bin, "-addr", "127.0.0.1:0", "-site-config", config)
+	server.Stdout = io.Discard
+	stderr, err := server.StderrPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := server.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { stopServer(); _ = server.Wait() }()
-	c, err := newChecker("http://" + addr)
+	originCh := make(chan string, 1)
+	stderrDone := make(chan struct{})
+	go func() {
+		defer close(stderrDone)
+		defer close(originCh)
+		scanner := bufio.NewScanner(stderr)
+		announced := false
+		for scanner.Scan() {
+			const banner = "Metro Web local demo: "
+			line := scanner.Text()
+			if at := strings.Index(line, banner); at >= 0 && !announced {
+				fields := strings.Fields(line[at+len(banner):])
+				if len(fields) > 0 {
+					originCh <- fields[0]
+					announced = true
+				}
+			}
+		}
+	}()
+	defer func() { stopServer(); <-stderrDone; _ = server.Wait() }()
+	var origin string
+	select {
+	case origin = <-originCh:
+		if !strings.HasPrefix(origin, "http://127.0.0.1:") {
+			t.Fatalf("publisher did not announce a loopback origin: %q", origin)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("publisher did not announce its bound port")
+	}
+	c, err := newChecker(origin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +388,7 @@ func TestCheckerAgainstRealPublisher(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("publisher did not start: %v\n%s", err, serverOutput.String())
+			t.Fatalf("publisher did not start at %s: %v", origin, err)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -326,7 +396,7 @@ func TestCheckerAgainstRealPublisher(t *testing.T) {
 	defer cancel()
 	got, err := c.check(ctx, "spec")
 	if err != nil {
-		t.Fatalf("real publisher verification: %v\n%s", err, serverOutput.String())
+		t.Fatalf("real publisher verification at %s: %v", origin, err)
 	}
 	if got.Status != "VERIFIED_BYTES_AND_TRANSCRIPT" || got.RunFreshnessVerified || got.PublisherIdentityVerified || len(got.Route) != 2 || got.Route[0].ResourceID != "guide" || got.Route[1].ResourceID != "spec" {
 		t.Fatalf("unexpected real publisher route: %+v", got)

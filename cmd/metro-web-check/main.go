@@ -585,7 +585,10 @@ func newChecker(raw string) (*checker, error) {
 		u.Host = host
 	}
 	transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 2 * time.Second}).DialContext, TLSHandshakeTimeout: 2 * time.Second, ResponseHeaderTimeout: 10 * time.Second, MaxResponseHeaderBytes: 16 << 10, DisableCompression: true, DisableKeepAlives: true}
-	return &checker{origin: u.Scheme + "://" + u.Host, client: &http.Client{Transport: transport, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+	// The CLI's 90-second context bounds the entire check. A per-request
+	// Client.Timeout would also cap body transfer and can truncate a valid
+	// 8 MiB asset even when the caller's overall deadline has not expired.
+	return &checker{origin: u.Scheme + "://" + u.Host, client: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 
 func (c *checker) fetch(ctx context.Context, method, path, contentType string, body []byte, limit int) ([]byte, error) {
@@ -686,7 +689,7 @@ func jsonMapEquals(got map[string]any, want map[string]any) bool {
 
 func validTime(s string) bool { _, err := time.Parse(time.RFC3339Nano, s); return err == nil }
 
-func verifyEvent(ev event, e edge, r resource, target, mapHash string, used map[string]bool) error {
+func verifyEvent(ev event, e edge, r resource, target, mapHash string, used map[string]bool, previousCompletion time.Time) error {
 	if !reflect.DeepEqual(ev.Edge, e) || ev.Status != "CONFIRMED_LOCAL" || ev.Receipt == nil {
 		return errors.New("event transition or status mismatch")
 	}
@@ -712,10 +715,12 @@ func verifyEvent(ev event, e edge, r resource, target, mapHash string, used map[
 	if rc.Protocol != "metro.receipt.v0.1" || rc.ReceiptID != "receipt-"+p.ActionID || rc.ActionID != p.ActionID || rc.RouteID != rt.RouteID || rc.ExecutorID != rt.SelectedTarget || rc.Status != "SUCCEEDED" || rc.HashAlgorithm != "sha256" || rc.InputHash != hashJSON(p.Action.Inputs) || rc.ResultHash != hashJSON(ev.Result) || rc.ResultRef != "sha256:"+r.SHA256 || !validTime(rc.StartedAt) || !validTime(rc.CompletedAt) {
 		return errors.New("receipt binding, status, or digest mismatch")
 	}
-	start, _ := time.Parse(time.RFC3339Nano, rc.StartedAt)
-	finish, _ := time.Parse(time.RFC3339Nano, rc.CompletedAt)
-	if finish.Before(start) {
-		return errors.New("receipt time reversed")
+	created, _ := time.Parse(time.RFC3339Nano, p.CreatedAt)
+	decided, _ := time.Parse(time.RFC3339Nano, rt.DecidedAt)
+	started, _ := time.Parse(time.RFC3339Nano, rc.StartedAt)
+	completed, _ := time.Parse(time.RFC3339Nano, rc.CompletedAt)
+	if decided.Before(created) || started.Before(decided) || completed.Before(started) || (!previousCompletion.IsZero() && created.Before(previousCompletion)) {
+		return errors.New("event timestamps are not causally ordered")
 	}
 	return nil
 }
@@ -764,14 +769,16 @@ func (c *checker) check(ctx context.Context, target string) (checkResult, error)
 		return checkResult{}, errors.New("run status, map, route count, or fresh-read claim mismatch")
 	}
 	used := map[string]bool{}
+	var previousCompletion time.Time
 	for i, e := range path {
 		r := resources[e.Resource]
 		if run.Resources[i] != (runResource{ID: r.ID, SHA256: r.SHA256, Size: r.Size}) {
 			return checkResult{}, fmt.Errorf("step %d resource mismatch", i+1)
 		}
-		if err := verifyEvent(run.Events[i], e, r, target, mapHash, used); err != nil {
+		if err := verifyEvent(run.Events[i], e, r, target, mapHash, used, previousCompletion); err != nil {
 			return checkResult{}, fmt.Errorf("step %d: %w", i+1, err)
 		}
+		previousCompletion, _ = time.Parse(time.RFC3339Nano, run.Events[i].Receipt.CompletedAt)
 		out.Route = append(out.Route, checkedStep{EdgeID: e.ID, ResourceID: r.ID, SHA256: r.SHA256, Size: r.Size, ReceiptID: run.Events[i].Receipt.ReceiptID})
 	}
 	fresh, err := c.mapAt(ctx)
