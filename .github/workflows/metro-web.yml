@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'cmd/metro-web-demo/**'
+      - 'cmd/metro-web-check/**'
       - 'internal/metro/**'
       - 'examples/metro-web/**'
       - '.github/workflows/metro-web.yml'
@@ -11,6 +12,7 @@ on:
     branches: [main]
     paths:
       - 'cmd/metro-web-demo/**'
+      - 'cmd/metro-web-check/**'
       - 'internal/metro/**'
       - 'examples/metro-web/**'
       - '.github/workflows/metro-web.yml'
@@ -32,10 +34,10 @@ jobs:
         with:
           go-version: '1.23.12'
           cache: false
-      - name: Test resource adapters and Metro receipts
-        run: go test -count=1 -v ./cmd/metro-web-demo ./internal/metro
+      - name: Test resource adapters, Metro receipts, and independent checker
+        run: go test -count=1 -v ./cmd/metro-web-demo ./cmd/metro-web-check ./internal/metro
       - name: Vet
-        run: go vet ./cmd/metro-web-demo ./internal/metro
+        run: go vet ./cmd/metro-web-demo ./cmd/metro-web-check ./internal/metro
       - name: Race checks
         if: runner.os == 'Linux'
-        run: go test -race ./cmd/metro-web-demo
+        run: go test -race ./cmd/metro-web-demo ./cmd/metro-web-check
