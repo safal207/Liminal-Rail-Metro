@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Metro Web — карта ресурсов</title>
+<style>
+:root{--ink:#182c36;--muted:#617480;--line:#dbe6e5;--paper:#f4f8f7;--green:#087e70;--light:#e4f3ef;--red:#a43738}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}header{background:#fff;border-bottom:1px solid var(--line)}nav{max-width:1120px;margin:auto;padding:20px 26px;display:flex;justify-content:space-between;align-items:center;gap:12px}.brand{font-size:19px;font-weight:850;letter-spacing:.12em}.brand span{font-weight:500;color:var(--green)}.tag{font-size:11px;font-weight:750;letter-spacing:.07em;border:1px solid var(--line);border-radius:20px;padding:6px 11px}main{max-width:1120px;margin:auto;padding:34px 26px 56px}h1{font-size:clamp(30px,4.8vw,46px);line-height:1.14;letter-spacing:-.04em;margin:7px 0 12px}h2{font-size:18px;margin:0 0 13px}.eyebrow{font-size:11px;letter-spacing:.14em;font-weight:800;color:var(--green)}.intro{max-width:760px;color:var(--muted)}.grid{display:grid;grid-template-columns:1.2fr .8fr;gap:18px;margin-top:27px}.card{background:#fff;border:1px solid var(--line);border-radius:17px;padding:23px;min-width:0}.wide{grid-column:1/-1}.row{display:flex;flex-wrap:wrap;align-items:center;gap:10px}button,select{font:inherit;border-radius:9px}button{border:0;background:var(--green);color:#fff;font-weight:700;padding:10px 15px;cursor:pointer}button.secondary{background:#fff;color:var(--ink);border:1px solid var(--line)}button:disabled{opacity:.55;cursor:wait}select{padding:9px 12px;border:1px solid var(--line);min-width:160px;max-width:100%;background:#fff}button:focus-visible,select:focus-visible,summary:focus-visible,a:focus-visible{outline:3px solid #44baa9;outline-offset:3px}.status{margin:16px 0 0;padding:11px 13px;border-radius:9px;background:var(--light);color:#075c52;min-height:44px}.status.wait{background:#fff7e8;color:#755319}.status.error{background:#fff0ef;color:var(--red)}.list{display:grid;gap:9px}.station,.transition,.resource,.trip{border:1px solid var(--line);border-radius:10px;padding:11px 13px;background:#fbfdfc}.station b,.transition b,.resource b,.trip b{display:block}.small{font-size:12px;color:var(--muted)}.mono{font:11px/1.5 ui-monospace,Consolas,monospace;overflow-wrap:anywhere;color:var(--muted)}.route{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:11px 0}.route span{border-radius:8px;padding:6px 9px;background:var(--light);font-size:12px}.route i{font-style:normal;color:var(--muted)}.download{display:inline-block;margin-top:8px;color:var(--green);font-weight:700}pre{max-height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f8f9;padding:12px;border-radius:8px;font:11px/1.5 ui-monospace,Consolas,monospace}details{margin-top:14px;font-size:12px}summary{cursor:pointer;color:var(--muted)}footer{color:var(--muted);font-size:12px;margin-top:25px}@media(max-width:740px){nav{padding:18px}main{padding:29px 16px}.grid{grid-template-columns:1fr}.wide{grid-column:auto}.card{padding:19px}}
+</style>
+</head>
+<body>
+<header><nav><div class="brand">METRO <span>WEB</span></div><div class="tag">КАРТА РЕСУРСОВ · 007</div></nav></header>
+<main>
+<div class="eyebrow">ЦЕЛЬ → МАРШРУТ → ФАЙЛ → КВИТАНЦИЯ</div>
+<h1>Ресурсы стали станциями.</h1>
+<p class="intro">Издатель показывает карту переходов к своим файлам. Читатель выбирает путь к указанной цели, проверяет каждый файл и сохраняет только подтверждённый маршрут. Повторный проход снова читает данные.</p>
+<div class="grid">
+<section class="card">
+<h2>Карта издателя</h2>
+<div class="row"><button class="secondary" id="refresh">Обновить карту</button><span id="source" class="small">—</span></div>
+<p id="mapStatus" class="status wait" role="status">Загружаю карту…</p>
+<div class="route" id="routeSummary" aria-label="Схема карты"></div>
+<h2>Станции</h2><div id="nodes" class="list"></div>
+<details><summary>Все переходы и исходная карта</summary><div id="edges" class="list"></div><pre id="mapRaw">—</pre></details>
+</section>
+<section class="card">
+<h2>Поехать к ресурсу</h2>
+<p class="small">Цель выбирается по ID из карты. Адрес сайта и путь к файлу здесь не вводятся.</p>
+<div class="row"><label for="target">Цель</label><select id="target" disabled></select><button id="go" disabled>Пройти маршрут</button></div>
+<p id="runStatus" class="status wait" role="status">Сначала нужна карта.</p>
+<div id="resultSummary" class="small"></div>
+<div id="trips" class="list"></div>
+<details><summary>Результат и квитанции JSON</summary><pre id="runRaw">—</pre></details>
+</section>
+<section class="card wide">
+<h2>Проверенные ресурсы</h2>
+<div id="resources" class="list"><p class="small">После прохода здесь появятся версии файлов и безопасные ссылки на их загрузку.</p></div>
+<p class="small">Прототип работает только с чтением заранее выбранных файлов размером до 8 МиБ. Он не выполняет HTML или код издателя. Паспорт и карта приходят от настроенного источника и сами по себе не являются независимым удостоверением его личности.</p>
+</section>
+</div>
+<footer>Metro Web 007 — локальный учебный прототип графа ресурсов. Старые режимы меню и одного файла доступны отдельно.</footer>
+</main>
+<script>
+/*SITE_MODE*/
+const $=id=>document.getElementById(id);let site=null;let busy=false;
+function status(id,message,kind=''){const node=$(id);node.textContent=message;node.className='status'+(kind?' '+kind:'');}
+function element(tag,className,text){const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=String(text);return node;}
+function buttons(){ $('refresh').disabled=busy;$('go').disabled=busy||!site;$('target').disabled=busy||!site;}
+async function request(path,options){const response=await fetch(path,{cache:'no-store',...options});if(response.status===409)throw Error('Карта или файл изменились. Обновите карту и повторите проход.');if(!response.ok)throw Error('Источник недоступен: HTTP '+response.status);return response;}
+function validMap(map){return map?.protocol==='metro.web.site.v0.1'&&Array.isArray(map.nodes)&&Array.isArray(map.edges)&&Array.isArray(map.resources)&&map.resources.length>=2&&map.resources.length<=8;}
+function clearMap(){site=null;$('nodes').replaceChildren();$('edges').replaceChildren();$('routeSummary').replaceChildren();$('target').replaceChildren();$('mapRaw').textContent='—';}
+function drawMap(map){$('nodes').replaceChildren();$('edges').replaceChildren();$('routeSummary').replaceChildren();$('target').replaceChildren();for(const node of map.nodes){const box=element('div','station');box.append(element('b','',node.label||node.id),element('span','mono',node.id+(node.resource_id?' · '+node.resource_id:'')));$('nodes').append(box);}for(const edge of map.edges){const box=element('div','transition');box.append(element('b','',edge.from+' → '+edge.to),element('span','mono',edge.id+' · '+edge.action+' · '+edge.scope));$('edges').append(box);}for(const resource of map.resources){const label=resource.label&&resource.label!==resource.id?resource.label+' ('+resource.id+')':resource.id;const option=element('option','',label);option.value=resource.id;$('target').append(option);}const start=element('span','',map.start);$('routeSummary').append(start,element('i','','→'),element('span','',map.resources.length+' ресурса'));$('mapRaw').textContent=JSON.stringify(map,null,2);}
+async function refresh(){if(busy)return;busy=true;buttons();site=null;status('mapStatus','Читаю свежую карту…','wait');status('runStatus','Выберите цель после загрузки карты.','wait');$('resources').replaceChildren();$('trips').replaceChildren();$('resultSummary').textContent='';$('runRaw').textContent='—';try{const response=await request('/api/site');const map=await response.json();if(!validMap(map))throw Error('Источник вернул неподдерживаемую карту.');site=map;drawMap(map);$('source').textContent=window.__SITE_SOURCE__==='http'?'Читатель · удалённый издатель':'Локальный издатель';status('mapStatus','Карта получена: '+map.nodes.length+' станций и '+map.edges.length+' переходов.');status('runStatus','Выберите ресурс и пройдите маршрут.','wait');}catch(err){clearMap();status('mapStatus',err.message,'error');}finally{busy=false;buttons();}}
+function drawResult(result){$('trips').replaceChildren();$('resources').replaceChildren();$('runRaw').textContent=JSON.stringify(result,null,2);const events=Array.isArray(result.events)?result.events:[];for(const step of events){const box=element('div','trip');const transition=step.edge?.id||step.edge_id||'переход';box.append(element('b','',transition),element('span','small',(step.status||'')+(step.receipt?' · квитанция получена':'')));$('trips').append(box);}const files=Array.isArray(result.resources)?result.resources:[];for(const file of files){const box=element('div','resource');const id=file.id||file.resource_id;const hash=file.sha256||file.hash;box.append(element('b','',id||'Ресурс'),element('div','small',(file.size_bytes??'—')+' байт'),element('div','mono','SHA-256: '+(hash||'—')));if(id&&hash&&String(result.status||'').startsWith('CONFIRMED')){const link=element('a','download','Скачать проверенную версию');link.href='/api/site/assets/'+encodeURIComponent(id)+'/full?sha256='+encodeURIComponent(hash);link.download='metro-'+id+'.bin';box.append(link);}$('resources').append(box);}if(!files.length)$('resources').append(element('p','small','В этом проходе подтверждённых файлов нет.'));$('resultSummary').textContent='Источник маршрута: '+(result.route_source||result.mode||'—')+' · свежих чтений: '+(result.fresh_reads??'—')+' · переходов: '+events.length;}
+async function run(){if(busy||!site)return;busy=true;buttons();const target=$('target').value;status('runStatus','Ищу путь к '+target+' и проверяю файлы…','wait');$('trips').replaceChildren();$('resources').replaceChildren();$('resultSummary').textContent='';$('runRaw').textContent='—';try{const response=await request('/api/site/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target})});const result=await response.json();if(validMap(result.map)){site=result.map;drawMap(result.map);if(result.map.resources.some(resource=>resource.id===target))$('target').value=target;status('mapStatus','Карта обновлена: '+result.map.nodes.length+' станций и '+result.map.edges.length+' переходов.');}else{clearMap();status('mapStatus','Карта недоступна. Обновите её перед новым проходом.','error');}drawResult(result);if(String(result.status||'').startsWith('CONFIRMED'))status('runStatus','Маршрут к '+target+' подтверждён. Файлы прочитаны заново.');else status('runStatus',(result.status||'Путь не подтверждён')+(result.reason?' · '+result.reason:''),'error');}catch(err){status('runStatus',err.message,'error');}finally{busy=false;buttons();}}
+$('refresh').addEventListener('click',refresh);$('go').addEventListener('click',run);refresh();
+</script>
+</body>
+</html>

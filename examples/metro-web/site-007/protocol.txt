@@ -1,0 +1,10 @@
+METRO WEB 007 / PROTOCOL NOTES
+
+The graph is a publisher-declared map, not a grant of authority. The reader
+allows only the local open_resource/read contract and a bounded route.
+Each reached file is read again on every run. A remembered sequence of
+transition IDs can help choose a path, but it never reuses old file bytes.
+
+The publisher's identity and the truth of its content are outside this local
+demonstration. HTTPS, external signatures and a general website renderer are
+separate problems.

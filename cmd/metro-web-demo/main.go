@@ -24,6 +24,9 @@ var page string
 //go:embed asset.html
 var assetPage string
 
+//go:embed site.html
+var sitePage string
+
 // handler serves the local UI and bounded demo API after Host and Origin checks.
 func handler(e *engine, host string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -43,6 +46,10 @@ func handler(e *engine, host string) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
+		if e.site != nil && r.URL.Path != "/" && r.URL.Path != "/api/site" && r.URL.Path != "/api/site/run" && !strings.HasPrefix(r.URL.Path, "/api/site/assets/") {
+			http.NotFound(w, r)
+			return
+		}
 		switch r.URL.Path {
 		case "/":
 			if r.Method != http.MethodGet {
@@ -50,6 +57,14 @@ func handler(e *engine, host string) http.Handler {
 				return
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if e.site != nil {
+				mode := "window.__SITE_SOURCE__='file';"
+				if e.site.remote != nil {
+					mode = "window.__SITE_SOURCE__='http';"
+				}
+				_, _ = io.WriteString(w, strings.Replace(sitePage, "/*SITE_MODE*/", mode, 1))
+				return
+			}
 			if e.asset != nil {
 				mode := "window.__ASSET_SOURCE__='file';"
 				if e.asset.remote != nil {
@@ -85,6 +100,45 @@ func handler(e *engine, host string) http.Handler {
 				return
 			}
 			e.asset.serve(w, r)
+		case "/api/site":
+			if e.site == nil {
+				http.NotFound(w, r)
+				return
+			}
+			e.site.serve(w, r)
+		case "/api/site/run":
+			if e.site == nil {
+				http.NotFound(w, r)
+				return
+			}
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			media, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+			if err != nil || media != "application/json" || len(params) > 1 || (len(params) == 1 && !strings.EqualFold(params["charset"], "utf-8")) {
+				http.Error(w, "JSON required", http.StatusUnsupportedMediaType)
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, 1024)
+			defer r.Body.Close()
+			raw, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, "invalid JSON", http.StatusBadRequest)
+				return
+			}
+			var req siteRunRequest
+			if strictSiteJSON(raw, &req, 1024) != nil || !siteID(req.Target) {
+				http.Error(w, "invalid JSON", http.StatusBadRequest)
+				return
+			}
+			out, err := e.site.run(r.Context(), req)
+			if err != nil {
+				http.Error(w, "site route unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(out)
 		case "/api/run":
 			if r.Method != http.MethodPost {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -117,6 +171,10 @@ func handler(e *engine, host string) http.Handler {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(out)
 		default:
+			if e.site != nil && strings.HasPrefix(r.URL.Path, "/api/site/assets/") {
+				e.site.serve(w, r)
+				return
+			}
 			http.NotFound(w, r)
 		}
 	})
@@ -161,7 +219,12 @@ func main() {
 	memory := flag.String("memory", "", "persist bounded route memory in a dedicated local file (one process per file)")
 	asset := flag.String("asset", "", "publish a bounded read-only binary file")
 	remoteAsset := flag.String("remote-asset", "", "read binary chunks from a fixed HTTP(S) publisher origin")
+	siteConfig := flag.String("site-config", "", "publish a bounded read-only site map and operator-selected files")
+	remoteSite := flag.String("remote-site", "", "navigate a site map from one fixed HTTP(S) publisher origin")
 	flag.Parse()
+	if (*siteConfig != "" || *remoteSite != "") && (*export != "" || *resource != "" || *remote != "" || *graphFile != "" || *remoteGraph || *memory != "" || *asset != "" || *remoteAsset != "") || (*siteConfig != "" && *remoteSite != "") {
+		log.Fatal("choose site-config or remote-site separately from other modes")
+	}
 	if (*asset != "" || *remoteAsset != "") && (*export != "" || *resource != "" || *remote != "" || *graphFile != "" || *remoteGraph || *memory != "") || (*asset != "" && *remoteAsset != "") {
 		log.Fatal("choose asset or remote-asset separately from menu, graph, export and memory modes")
 	}
@@ -191,6 +254,23 @@ func main() {
 	}
 	actual := listener.Addr().String()
 	e := newEngine()
+	if *siteConfig != "" {
+		e.site, err = newSitePublisher(*siteConfig)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer e.site.close()
+	}
+	if *remoteSite != "" {
+		e.site, err = newSiteReader(*remoteSite)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if e.site.remote.targets(actual) {
+			log.Fatal("remote site origin cannot be this server")
+		}
+		defer e.site.close()
+	}
 	if *asset != "" {
 		source, sourceErr := newResourceSource(*asset)
 		if sourceErr != nil {
@@ -255,6 +335,6 @@ func main() {
 		}
 	}
 	server := &http.Server{Handler: handler(e, actual), ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
-	log.Printf("Metro Web local demo: http://%s (menu file: %t; menu HTTP: %t; asset file: %t; asset HTTP: %t; read-only)", actual, *resource != "", *remote != "", *asset != "", *remoteAsset != "")
+	log.Printf("Metro Web local demo: http://%s (menu file: %t; menu HTTP: %t; asset file: %t; asset HTTP: %t; site file: %t; site HTTP: %t; read-only)", actual, *resource != "", *remote != "", *asset != "", *remoteAsset != "", *siteConfig != "", *remoteSite != "")
 	log.Fatal(server.Serve(listener))
 }
