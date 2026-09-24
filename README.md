@@ -16,49 +16,58 @@ permitted transitions that an agent can follow and verify.
 
 ## Try the Metro Web preview
 
-Metro Web is currently in [draft PR #39](https://github.com/safal207/Liminal-Rail-Metro/pull/39), **not on `main`**. With Git and Go 1.23.12 installed, start from a clean clone and explicitly check out its public preview branch:
+The resource-map demo is in [draft PR #41](https://github.com/safal207/Liminal-Rail-Metro/pull/41),
+with a separate checker in [draft PR #42](https://github.com/safal207/Liminal-Rail-Metro/pull/42).
+Neither is on `main`. With Git and Go 1.23.12 installed, start from the
+exact reviewed preview commit:
 
 ```sh
-git clone --branch metro-web-006-binary-resource --single-branch https://github.com/safal207/Liminal-Rail-Metro.git
+git clone --branch metro-web-008-independent-checker --single-branch https://github.com/safal207/Liminal-Rail-Metro.git
 cd Liminal-Rail-Metro
-go run ./cmd/metro-web-demo -addr 127.0.0.1:8787
+git switch --detach 6c01c12f96997cef58b149d299c76de8b1fffa05
 ```
 
-Open <http://127.0.0.1:8787/>. The local demo shows a bounded menu task,
-its graph transitions, and the route/receipt trail. Stop it with Ctrl+C. It
-uses no API key or Rust runtime.
-
-To try the experimental **read-only binary resource** path, run these in two
-terminals from the same clone. `README.md` is a sample file already present
-in the repository; you can replace it with any regular file up to 8 MiB.
+Start the example publisher in one terminal. It serves three operator-selected
+files and a read-only graph on local loopback:
 
 ```sh
-# Terminal 1: publisher
-go run ./cmd/metro-web-demo -addr 127.0.0.1:8788 -asset ./README.md
+go run ./cmd/metro-web-demo -addr 127.0.0.1:8788 -site-config ./examples/metro-web/site-007/site.json
 ```
+
+In a second terminal, ask the independent client to reach `spec`:
 
 ```sh
-# Terminal 2: reader
-go run ./cmd/metro-web-demo -addr 127.0.0.1:8787 -remote-asset http://127.0.0.1:8788
+go run ./cmd/metro-web-check -origin http://127.0.0.1:8788 -target spec
 ```
 
-Open <http://127.0.0.1:8787/> again to inspect the file passport and verify a
-block or the whole file. The publisher and reader only listen on local
-loopback addresses. [Stage 006 details and limits](https://github.com/safal207/Liminal-Rail-Metro/blob/metro-web-006-binary-resource/docs/metro-web-006-binary-resource.md)
-live on the preview branch.
+The result should say `VERIFIED_BYTES_AND_TRANSCRIPT` with two ordered steps:
+`open_guide → open_spec`. Each step names a resource hash and receipt.
+Try `-target page` to take the other two-step path. To view the graph and
+navigate it in a local browser, keep the publisher running and start the demo
+reader in another terminal:
 
-**What this proves today:** bounded local routing and evidence, a demo graph,
-and a pinned, read-only file transfer. It is not a general website browser,
-an Internet-wide discovery service, a write/upload service, or a substitute
-for independent authorization. A hash checks bytes, not the publisher's
-identity or the truth of its claims. See the [non-goals](#non-goals)
-before deploying it beyond the demo.
+```sh
+go run ./cmd/metro-web-demo -addr 127.0.0.1:8787 -remote-site http://127.0.0.1:8788
+```
+
+Open <http://127.0.0.1:8787/>, choose `spec` or `page`, and run the route.
+Stop each server with Ctrl+C. No API key or Rust runtime is needed.
+[Map and UI contract](https://github.com/safal207/Liminal-Rail-Metro/blob/6c01c12f96997cef58b149d299c76de8b1fffa05/docs/metro-web-007-site-map.md) ·
+[independent checker limits](https://github.com/safal207/Liminal-Rail-Metro/blob/6c01c12f96997cef58b149d299c76de8b1fffa05/docs/metro-web-008-independent-checker.md).
+
+**What this proves today:** the client can find a bounded path, independently
+check fetched bytes, and cross-check the publisher's route and receipt
+transcript. The output explicitly says `run_freshness_verified: false` and
+`publisher_identity_verified: false`: a consistent precomputed transcript
+could pass. Metro Web is not a general website browser, an Internet-wide
+discovery service, a write/upload service, or a source of authorization.
+See the [non-goals](#non-goals) before using it beyond the demo.
 
 If the preview fails on a clean machine, please [file a bug](https://github.com/safal207/Liminal-Rail-Metro/issues/new/choose)
-with your OS, Go version, exact command, and the result. The separate
+with your OS, Go version, exact commit, command, and result. The separate
 [clean-room tester issue #31](https://github.com/safal207/Liminal-Rail-Metro/issues/31)
 tests the Docker-based Developer Quickstart at its specified commit, not this
-Metro Web branch; follow that issue's commands exactly if testing it.
+Metro Web preview; follow that issue's commands exactly if testing it.
 
 ## Why this project exists
 

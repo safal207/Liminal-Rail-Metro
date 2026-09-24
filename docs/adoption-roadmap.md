@@ -2,7 +2,7 @@
 
 **Status:** proposed plan, starting when the maintainer accepts it. No audience,
 usage, or contributor numbers are claimed here. Metro core is on `main`;
-Metro Web is still an experimental stack of draft PRs, with [stage 006](https://github.com/safal207/Liminal-Rail-Metro/pull/39)
+Metro Web is still an experimental stack of draft PRs, through [stage 008](https://github.com/safal207/Liminal-Rail-Metro/pull/42)
 as a runnable preview. The first job is to make its current behavior easy to
 try and honestly evaluate, not to announce a new Internet as already built.
 
@@ -32,9 +32,9 @@ A2A, HTTPS, a browser, or an agent framework.
 | When | Deliverable | Evidence to pass the gate |
 | --- | --- | --- |
 | Days 0–14 | Confirm a root `LICENSE` is present on `main` (tracked in [PR #32](https://github.com/safal207/Liminal-Rail-Metro/pull/32)); merge this onboarding documentation and issue templates; assign one maintainer to answer reports. | License file is present on `main`, README license statement matches it, and a fresh clone follows the published commands. If the file is absent in a revision, do not present MIT as applying to that revision. |
-| Days 0–30 | Bring the Metro Web draft stack onto one tested integration path; keep the read-only demo's route, file, and permission boundaries visible. | Stage PRs have passing relevant Linux/Windows checks, reviewed claim limits, a working clean-clone command, and an integration PR or ordered merge plan. Draft PR #39 alone is not a release. |
+| Days 0–30 | Bring the Metro Web draft stack onto one tested integration path; keep the read-only demo's route, file, and permission boundaries visible. | Stage PRs have passing relevant Linux/Windows checks, reviewed claim limits, a working clean-clone command, and an integration PR or ordered merge plan. Draft PRs alone are not a release. |
 | Days 15–45 | Complete the independent Docker-based Developer Quickstart test in [issue #31](https://github.com/safal207/Liminal-Rail-Metro/issues/31) at its specified commit. Separately invite a clean-clone test of the Metro Web preview branch. Do not substitute one test for the other. | Issue #31 has one unrelated tester's report in its required format; a separate Metro Web report records OS, Go version, exact commands, observed result, and any undocumented step. Fix blockers and repeat the affected test. |
-| Days 30–60 | Publish a usable preview only after the preceding gates: one scenario, a short screen capture or diagram, protocol limits, and a pinned source revision. | Someone new can run the demo, reach a verified menu result or full-file check, explain what the receipt proves, and report a failure through an issue template. |
+| Days 30–60 | Publish a usable preview only after the preceding gates: one scenario, a short screen capture or diagram, protocol limits, and a pinned source revision. | Someone new can follow the map to `spec` or `page`, inspect two resource hashes and receipts, explain what they do and do not prove, and report a failure through an issue template. |
 | Days 45–90 | Test one real adopter problem and one narrow MCP *or* A2A adapter sketch. Invite critique of the graph/receipt model. | A public issue captures the adopter's goal, current workaround, expected route/evidence, security boundary, and a small executable acceptance test. Interop claims require a working test, not a diagram. |
 | Day 90 | Decide whether to expand, revise, or stop the Metro Web track. | Review the measurements below and unresolved safety/UX reports. Publish the decision and the next three concrete issues. |
 

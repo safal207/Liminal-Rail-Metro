@@ -6,7 +6,7 @@ title: "Bug: "
 
 ## Where did it happen?
 
-- Branch or commit (for example `main` or `metro-web-006-binary-resource`):
+- Branch or commit (for example `main` or `metro-web-008-independent-checker`):
 - OS and architecture:
 - `go version`:
 - Demo, API, or package:

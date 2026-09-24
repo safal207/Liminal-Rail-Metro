@@ -16,10 +16,10 @@ go version
 go run ./cmd/metro-demo
 ```
 
-The Metro Web preview is in the separate
-[`metro-web-006-binary-resource` branch](https://github.com/safal207/Liminal-Rail-Metro/tree/metro-web-006-binary-resource)
-and [draft PR #39](https://github.com/safal207/Liminal-Rail-Metro/pull/39),
-not on `main`. Follow the [clean-clone preview steps](README.md#try-the-metro-web-preview)
+The current Metro Web resource-map preview is in the separate
+[`metro-web-008-independent-checker` branch](https://github.com/safal207/Liminal-Rail-Metro/tree/metro-web-008-independent-checker)
+and [draft PR #42](https://github.com/safal207/Liminal-Rail-Metro/pull/42),
+not on `main`. Follow the [pinned clean-clone preview steps](README.md#try-the-metro-web-preview)
 when reporting a preview issue. The basic Go demos do not need Rust or a model
 API key. Cross-runtime tests and benchmarks do need the pinned Lifetra station;
 see [architecture](docs/architecture.md) and the relevant CI workflow.
@@ -64,7 +64,7 @@ credentials, tokens, private files, or host details in a public issue.
    For Metro Web preview changes, also run:
 
    ```sh
-   go test -race ./cmd/metro-web-demo ./internal/metro
+   go test -race -count=1 -timeout 120s ./cmd/metro-web-demo ./cmd/metro-web-check ./internal/metro
    ```
 
    If a check fails on your platform, include the OS, Go version, command and
