@@ -27,7 +27,8 @@ see [architecture](docs/architecture.md) and the relevant CI workflow.
 ## Good places to start
 
 - **Try a clean clone.** Run the Metro Web README preview on your own OS and
-  report the exact command, observed result, and what you expected. Separately,
+  [report the exact command and result in issue #43](https://github.com/safal207/Liminal-Rail-Metro/issues/43),
+  including a blocker or confusing step. Separately,
   [issue #31](https://github.com/safal207/Liminal-Rail-Metro/issues/31)
   requests an independent Docker-based Developer Quickstart test at a specific
   commit; use that issue's instructions when testing it.

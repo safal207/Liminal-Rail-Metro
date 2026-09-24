@@ -63,7 +63,8 @@ could pass. Metro Web is not a general website browser, an Internet-wide
 discovery service, a write/upload service, or a source of authorization.
 See the [non-goals](#non-goals) before using it beyond the demo.
 
-If the preview fails on a clean machine, please [file a bug](https://github.com/safal207/Liminal-Rail-Metro/issues/new/choose)
+If this is your first run, please [report what worked or blocked you in issue #43](https://github.com/safal207/Liminal-Rail-Metro/issues/43).
+If the preview fails, you can also [file a bug](https://github.com/safal207/Liminal-Rail-Metro/issues/new/choose)
 with your OS, Go version, exact commit, command, and result. The separate
 [clean-room tester issue #31](https://github.com/safal207/Liminal-Rail-Metro/issues/31)
 tests the Docker-based Developer Quickstart at its specified commit, not this
