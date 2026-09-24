@@ -96,3 +96,10 @@ and using new action IDs. The `page.html` bytes matched the local file;
 duplicate request keys returned HTTP 400, and a changed resource rejected an
 old pin with HTTP 409. The served HTML and JavaScript syntax were checked;
 visual browser interaction was not available in this environment.
+
+On 2026-09-24, after review feedback, the targeted race suite and `go vet`
+passed again. A local Node VM with a simulated DOM exercised the browser
+script: duplicate labels remain distinguishable by ID, the displayed map
+updates from a run response, a still-present target stays selected, a removed
+target falls back to the first available resource, and a failed request clears
+the previous result. This checks UI logic, not visual layout or browser input.
