@@ -68,9 +68,12 @@ credentials, tokens, private files, or host details in a public issue.
    go test -race -count=1 -timeout 120s ./cmd/metro-web-demo ./cmd/metro-web-check ./internal/metro
    ```
 
-   If a check fails on your platform, include the OS, Go version, command and
-   failing output. Some cross-runtime scenarios require the separately pinned
-   Rust project; the Go-only preview does not.
+   A [pre-existing Windows failure in the durable policy-authority tests](https://github.com/safal207/Liminal-Rail-Metro/issues/45)
+   currently prevents `go test ./...` from passing there. The focused Metro Web
+   checks above do pass on Windows. If any check fails on your platform, include
+   the OS, Go version, command and failing output; do not call the full suite
+   green. Some cross-runtime scenarios require the separately pinned Rust
+   project; the Go-only preview does not.
 5. Open a PR with the exact checks you ran. Do not mark a test as passing if it
    was skipped or the environment could not run it.
 
