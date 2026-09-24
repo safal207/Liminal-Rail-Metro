@@ -23,20 +23,23 @@ import (
 // The fixture speaks HTTP to the checker. It is deliberately separate from
 // the demo server so response tampering is exercised at the actual boundary.
 type publisherFixture struct {
-	mapDoc       siteMap
-	runDoc       runResult
-	files        map[string][]byte
-	passports    map[string]manifest
-	mapCalls     int
-	manifestGets int
-	fullGets     int
-	runPosts     int
-	mutateMap    func([]byte, int) []byte
-	mutatePass   func([]byte, string) []byte
-	mutateFull   func([]byte, string) []byte
-	mutateRun    func([]byte) []byte
-	fullStatus   int
-	fullAttempts int
+	mapDoc           siteMap
+	runDoc           runResult
+	files            map[string][]byte
+	passports        map[string]manifest
+	mapCalls         int
+	manifestGets     int
+	fullGets         int
+	runPosts         int
+	mutateMap        func([]byte, int) []byte
+	mutatePass       func([]byte, string) []byte
+	mutateFull       func([]byte, string) []byte
+	mutateRun        func([]byte) []byte
+	supportChallenge bool
+	challenges       []string
+	runContentLength int
+	fullStatus       int
+	fullAttempts     int
 }
 
 type brokenOutputWriter struct{ failure error }
@@ -84,7 +87,41 @@ func newFixture() *publisherFixture {
 		run.Events = append(run.Events, event{Edge: e, Status: "CONFIRMED_LOCAL", Packet: p, Route: rt, Receipt: rc, Result: result})
 		run.Resources = append(run.Resources, runResource{ID: r.ID, SHA256: r.SHA256, Size: r.Size})
 	}
-	return &publisherFixture{mapDoc: m, runDoc: run, files: files, passports: passports}
+	return &publisherFixture{mapDoc: m, runDoc: run, files: files, passports: passports, supportChallenge: true}
+}
+
+// This fixture hashes a newly bound transcript from its own saved content.
+// It demonstrates why a challenge alone cannot prove a fresh file read.
+func boundFixtureRun(base runResult, challenge string) runResult {
+	run := base
+	run.ClientChallenge = challenge
+	run.Events = make([]event, len(base.Events))
+	for i, ev := range base.Events {
+		beforeInputs := fixtureHash(ev.Packet.Action.Inputs)
+		beforeResult := fixtureHash(ev.Result)
+		inputs := make(map[string]any, len(ev.Packet.Action.Inputs)+1)
+		for key, value := range ev.Packet.Action.Inputs {
+			inputs[key] = value
+		}
+		inputs["client_challenge"] = challenge
+		result := make(map[string]any, len(ev.Result)+1)
+		for key, value := range ev.Result {
+			result[key] = value
+		}
+		result["client_challenge"] = challenge
+		ev.Packet.Action.Inputs = inputs
+		ev.Result = result
+		rc := *ev.Receipt
+		if rc.InputHash == beforeInputs {
+			rc.InputHash = fixtureHash(inputs)
+		}
+		if rc.ResultHash == beforeResult {
+			rc.ResultHash = fixtureHash(result)
+		}
+		ev.Receipt = &rc
+		run.Events[i] = ev
+	}
+	return run
 }
 
 func (f *publisherFixture) serve(w http.ResponseWriter, r *http.Request) {
@@ -100,11 +137,27 @@ func (f *publisherFixture) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/api/site/run" && r.Method == http.MethodPost {
 		f.runPosts++
-		raw, _ := json.Marshal(f.runDoc)
+		var request struct {
+			Target          string `json:"target"`
+			ClientChallenge string `json:"client_challenge"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Target != "spec" {
+			http.Error(w, "invalid fixture request", http.StatusBadRequest)
+			return
+		}
+		f.challenges = append(f.challenges, request.ClientChallenge)
+		run := f.runDoc
+		if f.supportChallenge {
+			run = boundFixtureRun(run, request.ClientChallenge)
+		}
+		raw, _ := json.Marshal(run)
 		if f.mutateRun != nil {
 			raw = f.mutateRun(raw)
 		}
 		w.Header().Set("Content-Type", "application/json")
+		if f.runContentLength > 0 {
+			w.Header().Set("Content-Length", fmt.Sprint(f.runContentLength))
+		}
 		_, _ = w.Write(raw)
 		return
 	}
@@ -164,14 +217,191 @@ func runFixture(t *testing.T, f *publisherFixture) (checkResult, error) {
 	return c.check(ctx, "spec")
 }
 
+func alterBoundResponse(f *publisherFixture, change func(*runResult)) {
+	f.mutateRun = func(raw []byte) []byte {
+		var run runResult
+		if err := json.Unmarshal(raw, &run); err != nil {
+			panic(err)
+		}
+		change(&run)
+		out, err := json.Marshal(run)
+		if err != nil {
+			panic(err)
+		}
+		return out
+	}
+}
+
 func TestCheckerVerifiesHTTPRouteAndReceipts(t *testing.T) {
 	f := newFixture()
 	got, err := runFixture(t, f)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != "VERIFIED_BYTES_AND_TRANSCRIPT" || got.RunFreshnessVerified || got.PublisherIdentityVerified || got.MapHash != f.runDoc.MapHash || len(got.Route) != 2 || got.Route[1].ResourceID != "spec" || f.mapCalls != 2 || f.manifestGets != 2 || f.fullGets != 2 || f.runPosts != 1 {
+	if got.Status != "VERIFIED_BYTES_AND_CHALLENGE_BOUND_TRANSCRIPT" || !got.ClientChallengeBound || got.RunFreshnessVerified || got.PublisherIdentityVerified || got.MapHash != f.runDoc.MapHash || len(got.Route) != 2 || got.Route[1].ResourceID != "spec" || f.mapCalls != 2 || f.manifestGets != 2 || f.fullGets != 2 || f.runPosts != 1 || len(f.challenges) != 1 || !validHash(f.challenges[0]) {
 		t.Fatalf("unexpected verification or HTTP sequence: %+v, map=%d manifests=%d full=%d runs=%d", got, f.mapCalls, f.manifestGets, f.fullGets, f.runPosts)
+	}
+}
+
+func TestCheckerRejectsLegacyAndStaticReplay(t *testing.T) {
+	t.Run("old publisher", func(t *testing.T) {
+		f := newFixture()
+		f.supportChallenge = false
+		_, err := runFixture(t, f)
+		if err == nil || failureStatus(err) != "REJECTED" || f.runPosts != 1 || len(f.challenges) != 1 || !validHash(f.challenges[0]) {
+			t.Fatalf("old publisher should be an explicit incompatibility: error=%v challenges=%v posts=%d", err, f.challenges, f.runPosts)
+		}
+	})
+	t.Run("captured response", func(t *testing.T) {
+		f := newFixture()
+		var captured []byte
+		f.mutateRun = func(raw []byte) []byte {
+			if captured == nil {
+				captured = append([]byte(nil), raw...)
+			}
+			return captured
+		}
+		server := httptest.NewServer(http.HandlerFunc(f.serve))
+		defer server.Close()
+		c, err := newChecker(server.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.check(context.Background(), "spec"); err != nil {
+			t.Fatalf("first bound response: %v", err)
+		}
+		_, err = c.check(context.Background(), "spec")
+		if err == nil || failureStatus(err) != "REJECTED" || !strings.Contains(err.Error(), "challenge") || len(f.challenges) != 2 || f.challenges[0] == f.challenges[1] {
+			t.Fatalf("literal replay was accepted or misclassified: error=%v challenges=%v", err, f.challenges)
+		}
+	})
+}
+
+func TestCheckerRejectsChallengeTamperingAtEveryLayer(t *testing.T) {
+	tests := []struct {
+		name   string
+		change func(*runResult)
+	}{
+		{"top-level mismatch", func(run *runResult) { run.ClientChallenge = strings.Repeat("0", 64) }},
+		{"top-level missing", func(run *runResult) { run.ClientChallenge = "" }},
+		{"unknown with mismatched challenge", func(run *runResult) {
+			run.ClientChallenge = strings.Repeat("0", 64)
+			run.Status = "UNKNOWN"
+		}},
+		{"first packet missing", func(run *runResult) { delete(run.Events[0].Packet.Action.Inputs, "client_challenge") }},
+		{"second packet mismatched", func(run *runResult) { run.Events[1].Packet.Action.Inputs["client_challenge"] = strings.Repeat("0", 64) }},
+		{"first result missing", func(run *runResult) { delete(run.Events[0].Result, "client_challenge") }},
+		{"second result mismatched", func(run *runResult) { run.Events[1].Result["client_challenge"] = strings.Repeat("0", 64) }},
+		{"rehashed wrong packet challenge", func(run *runResult) {
+			run.Events[0].Packet.Action.Inputs["client_challenge"] = strings.Repeat("0", 64)
+			run.Events[0].Receipt.InputHash = fixtureHash(run.Events[0].Packet.Action.Inputs)
+		}},
+		{"rehashed wrong result challenge", func(run *runResult) {
+			run.Events[0].Result["client_challenge"] = strings.Repeat("0", 64)
+			run.Events[0].Receipt.ResultHash = fixtureHash(run.Events[0].Result)
+		}},
+		{"input hash of pre-challenge packet", func(run *runResult) {
+			run.Events[0].Receipt.InputHash = fakedPreChallengeHash(run.Events[0].Packet.Action.Inputs)
+		}},
+		{"result hash of pre-challenge result", func(run *runResult) { run.Events[0].Receipt.ResultHash = fakedPreChallengeHash(run.Events[0].Result) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture()
+			alterBoundResponse(f, tt.change)
+			_, err := runFixture(t, f)
+			if err == nil || failureStatus(err) != "REJECTED" || f.runPosts != 1 {
+				t.Fatalf("accepted corrupted challenge transcript: error=%v posts=%d", err, f.runPosts)
+			}
+		})
+	}
+}
+
+func fakedPreChallengeHash(bound map[string]any) string {
+	old := make(map[string]any, len(bound)-1)
+	for key, value := range bound {
+		if key != "client_challenge" {
+			old[key] = value
+		}
+	}
+	return fixtureHash(old)
+}
+
+func TestCheckerRandomnessFailureIsUnknownBeforePost(t *testing.T) {
+	f := newFixture()
+	server := httptest.NewServer(http.HandlerFunc(f.serve))
+	defer server.Close()
+	c, err := newChecker(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.challengeReader = strings.NewReader("")
+	_, err = c.check(context.Background(), "spec")
+	if err == nil || failureStatus(err) != "UNKNOWN" || f.fullGets != 2 || f.runPosts != 0 {
+		t.Fatalf("randomness failure should stop before run POST: error=%v full=%d posts=%d", err, f.fullGets, f.runPosts)
+	}
+}
+
+func TestCheckerIncompleteRunBodyIsUnknown(t *testing.T) {
+	f := newFixture()
+	f.runContentLength = maxRunBytes
+	_, err := runFixture(t, f)
+	if err == nil || failureStatus(err) != "UNKNOWN" || f.runPosts != 1 {
+		t.Fatalf("incomplete run transfer must be UNKNOWN: error=%v posts=%d", err, f.runPosts)
+	}
+}
+
+func TestCheckerCompleteUnknownRunWithoutReceiptIsUnknown(t *testing.T) {
+	f := newFixture()
+	alterBoundResponse(f, func(run *runResult) {
+		run.Status = "UNKNOWN"
+		run.Reason = "resource read incomplete; no retry"
+		run.FreshReads = 0
+		run.Learned = false
+		run.Events = run.Events[:1]
+		run.Events[0].Status = "UNKNOWN"
+		run.Events[0].Receipt = nil
+		run.Events[0].Result = map[string]any{"client_challenge": run.ClientChallenge}
+		run.Resources = []runResource{}
+	})
+	mutate := f.mutateRun
+	var receiptAbsent bool
+	f.mutateRun = func(raw []byte) []byte {
+		out := mutate(raw)
+		receiptAbsent = !bytes.Contains(out, []byte(`"receipt":`))
+		return out
+	}
+	_, err := runFixture(t, f)
+	if err == nil || failureStatus(err) != "UNKNOWN" || !receiptAbsent || f.runPosts != 1 {
+		t.Fatalf("complete uncertain run without receipt misclassified: error=%v receiptAbsent=%t posts=%d", err, receiptAbsent, f.runPosts)
+	}
+}
+
+func TestCheckerSuccessfulRunStillRequiresReceiptAndResult(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		change func(*runResult)
+	}{
+		{"missing receipt", func(run *runResult) { run.Events[0].Receipt = nil }},
+		{"missing result", func(run *runResult) { run.Events[0].Result = nil }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture()
+			alterBoundResponse(f, tt.change)
+			_, err := runFixture(t, f)
+			if err == nil || failureStatus(err) != "REJECTED" {
+				t.Fatalf("accepted successful event without %s: %v", tt.name, err)
+			}
+		})
+	}
+}
+
+func TestCheckerChecksMemoryRouteWithChallenge(t *testing.T) {
+	f := newFixture()
+	f.runDoc.Mode = "memory_revalidated"
+	got, err := runFixture(t, f)
+	if err != nil || !got.ClientChallengeBound || got.RunFreshnessVerified || got.PublisherIdentityVerified || len(got.Route) != 2 {
+		t.Fatalf("memory route challenge verification failed: result=%+v error=%v", got, err)
 	}
 }
 
@@ -348,6 +578,7 @@ func TestCheckerAgainstRealPublisher(t *testing.T) {
 	}
 	originCh := make(chan string, 1)
 	stderrDone := make(chan struct{})
+	var launchLog strings.Builder
 	go func() {
 		defer close(stderrDone)
 		defer close(originCh)
@@ -356,6 +587,7 @@ func TestCheckerAgainstRealPublisher(t *testing.T) {
 		for scanner.Scan() {
 			const banner = "Metro Web local demo: "
 			line := scanner.Text()
+			launchLog.WriteString(line + "\n")
 			if at := strings.Index(line, banner); at >= 0 && !announced {
 				fields := strings.Fields(line[at+len(banner):])
 				if len(fields) > 0 {
@@ -370,7 +602,7 @@ func TestCheckerAgainstRealPublisher(t *testing.T) {
 	select {
 	case origin = <-originCh:
 		if !strings.HasPrefix(origin, "http://127.0.0.1:") {
-			t.Fatalf("publisher did not announce a loopback origin: %q", origin)
+			t.Fatalf("publisher did not announce a loopback origin: %q (stderr: %s)", origin, launchLog.String())
 		}
 	case <-time.After(20 * time.Second):
 		t.Fatal("publisher did not announce its bound port")
@@ -398,12 +630,18 @@ func TestCheckerAgainstRealPublisher(t *testing.T) {
 	if err != nil {
 		t.Fatalf("real publisher verification at %s: %v", origin, err)
 	}
-	if got.Status != "VERIFIED_BYTES_AND_TRANSCRIPT" || got.RunFreshnessVerified || got.PublisherIdentityVerified || len(got.Route) != 2 || got.Route[0].ResourceID != "guide" || got.Route[1].ResourceID != "spec" {
+	if got.Status != "VERIFIED_BYTES_AND_CHALLENGE_BOUND_TRANSCRIPT" || !got.ClientChallengeBound || got.RunFreshnessVerified || got.PublisherIdentityVerified || len(got.Route) != 2 || got.Route[0].ResourceID != "guide" || got.Route[1].ResourceID != "spec" {
 		t.Fatalf("unexpected real publisher route: %+v", got)
+	}
+	// The same publisher now has a learned path. Its second run uses the
+	// memory_revalidated mode while the checker still requires a new challenge.
+	got, err = c.check(ctx, "spec")
+	if err != nil || got.Status != "VERIFIED_BYTES_AND_CHALLENGE_BOUND_TRANSCRIPT" || !got.ClientChallengeBound || got.RunFreshnessVerified || got.PublisherIdentityVerified || len(got.Route) != 2 {
+		t.Fatalf("real publisher learned-route verification: result=%+v error=%v", got, err)
 	}
 }
 
-func TestCheckerLabelsPrecomputedTranscriptAsLimitedEvidence(t *testing.T) {
+func TestCheckerUsesDistinctChallengesButDoesNotClaimFreshReads(t *testing.T) {
 	f := newFixture()
 	server := httptest.NewServer(http.HandlerFunc(f.serve))
 	defer server.Close()
@@ -419,8 +657,8 @@ func TestCheckerLabelsPrecomputedTranscriptAsLimitedEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Status != "VERIFIED_BYTES_AND_TRANSCRIPT" || second.Status != first.Status || first.RunFreshnessVerified || second.RunFreshnessVerified || first.PublisherIdentityVerified || second.PublisherIdentityVerified || first.Route[0].ReceiptID != second.Route[0].ReceiptID || f.runPosts != 2 {
-		t.Fatalf("replayed transcript must not claim freshness: first=%+v second=%+v posts=%d", first, second, f.runPosts)
+	if first.Status != "VERIFIED_BYTES_AND_CHALLENGE_BOUND_TRANSCRIPT" || second.Status != first.Status || !first.ClientChallengeBound || !second.ClientChallengeBound || first.RunFreshnessVerified || second.RunFreshnessVerified || first.PublisherIdentityVerified || second.PublisherIdentityVerified || len(f.challenges) != 2 || f.challenges[0] == f.challenges[1] || f.runPosts != 2 {
+		t.Fatalf("fresh challenges must not imply fresh reads: first=%+v second=%+v challenges=%v posts=%d", first, second, f.challenges, f.runPosts)
 	}
 }
 

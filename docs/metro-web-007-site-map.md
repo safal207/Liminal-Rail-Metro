@@ -1,5 +1,9 @@
 # Metro Web 007: a bounded map of named resources
 
+This describes the Stage 007 contract. [Stage 009](metro-web-009-client-challenge.md)
+later adds an optional `client_challenge` to route requests while preserving
+the request and response shape documented here for older readers.
+
 Stage 007 connects the graph-navigation idea to more than one arbitrary file.
 It is an opt-in, read-only local prototype. The existing menu and single-file
 modes remain separate and unchanged.
