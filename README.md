@@ -606,6 +606,6 @@ Contributions should preserve the narrow claim ceiling: make each boundary indep
 ## License
 
 Check the root `LICENSE` file in the revision you use before reusing the code.
-The proposed MIT license text is tracked in
+The MIT license text is tracked in
 [PR #32](https://github.com/safal207/Liminal-Rail-Metro/pull/32); if your
 revision has no license file, do not assume that MIT terms apply.
