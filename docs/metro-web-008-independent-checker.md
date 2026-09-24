@@ -1,5 +1,11 @@
 # Metro Web 008: independent route and receipt checker
 
+This document describes Stage 008 at commit
+`6c01c12f96997cef58b149d299c76de8b1fffa05`. To reproduce the
+status and no-challenge behavior below, check out that revision. On Stage 009
+and later, the same command requires challenge support from the publisher
+and reports a different status; see [Stage 009](metro-web-009-client-challenge.md).
+
 Stage 008 adds a separate command for someone who wants to inspect a
 [Metro Web 007](metro-web-007-site-map.md) site without using the browser or
 trusting the demo reader's internal code path.
@@ -70,3 +76,7 @@ go vet ./cmd/metro-web-check ./cmd/metro-web-demo ./internal/metro
 Record a live clean-clone run from the checked-out commit before claiming
 outside interoperability. A successful local test is not a report from an
 independent developer.
+
+[Stage 009](metro-web-009-client-challenge.md) adds an opt-in client challenge
+that rejects an unchanged, pre-recorded run response. The challenge still
+does not prove that the publisher reread its files.

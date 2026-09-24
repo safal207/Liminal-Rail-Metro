@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/safal207/Liminal-Rail-Metro/internal/metro"
 )
 
 func siteFixture(t *testing.T) (string, string, string, []byte, []byte) {
@@ -151,6 +153,103 @@ func TestSiteTwoFileRouteMemoryAndFreshBytes(t *testing.T) {
 	_, _ = got.ReadFrom(full.Body)
 	if full.StatusCode != http.StatusOK || !bytes.Equal(got.Bytes(), changed) || full.Header.Get("X-Content-Type-Options") != "nosniff" || !strings.HasPrefix(full.Header.Get("Content-Disposition"), "attachment;") {
 		t.Fatal("published full asset differs from pinned file")
+	}
+}
+
+func siteRunHTTP(t *testing.T, h http.Handler, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "http://metro.test/api/site/run", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	return w
+}
+
+func TestSiteClientChallengeBindsBothRouteModesAndPreservesLegacy(t *testing.T) {
+	publisher, _, _, _, _ := sitePublisherFixture(t)
+	h := handler(&engine{site: publisher}, "metro.test")
+	challenges := []string{strings.Repeat("a", 64), strings.Repeat("b", 64)}
+	for attempt, challenge := range challenges {
+		body := `{"target":"beta","client_challenge":"` + challenge + `"}`
+		response := siteRunHTTP(t, h, body)
+		if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("attempt %d: status %d, cache %q: %s", attempt, response.Code, response.Header().Get("Cache-Control"), response.Body.String())
+		}
+		var out siteRunResult
+		if err := json.Unmarshal(response.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		wantMode := "graph"
+		if attempt == 1 {
+			wantMode = "memory_revalidated"
+		}
+		if out.Status != "CONFIRMED_LOCAL" || out.Mode != wantMode || out.ClientChallenge != challenge || len(out.Events) != 2 || out.FreshReads != 2 || out.MemoryEntries != 1 {
+			t.Fatalf("attempt %d: %+v", attempt, out)
+		}
+		for step, event := range out.Events {
+			if event.Receipt == nil || event.Packet.Action.Inputs["client_challenge"] != challenge || event.Result["client_challenge"] != challenge {
+				t.Fatalf("attempt %d step %d missing challenge: %+v", attempt, step, event)
+			}
+			inputHash, err := metro.HashJSON(event.Packet.Action.Inputs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resultHash, err := metro.HashJSON(event.Result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if event.Receipt.InputHash != inputHash || event.Receipt.ResultHash != resultHash || metro.Verify(event.Packet, event.Route, event.Result, *event.Receipt) != nil {
+				t.Fatalf("attempt %d step %d has unbound receipt: %+v", attempt, step, event.Receipt)
+			}
+		}
+	}
+
+	legacy := siteRunHTTP(t, h, `{"target":"beta"}`)
+	if legacy.Code != http.StatusOK || bytes.Contains(legacy.Body.Bytes(), []byte("client_challenge")) {
+		t.Fatalf("legacy response changed: %d %s", legacy.Code, legacy.Body.String())
+	}
+	var out siteRunResult
+	if err := json.Unmarshal(legacy.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Status != "CONFIRMED_LOCAL" || out.Mode != "memory_revalidated" || len(out.Events) != 2 || out.MemoryEntries != 1 {
+		t.Fatalf("legacy route changed: %+v", out)
+	}
+}
+
+func TestSiteMalformedClientChallengeRejectedBeforeRun(t *testing.T) {
+	publisher, _, _, _, _ := sitePublisherFixture(t)
+	h := handler(&engine{site: publisher}, "metro.test")
+	// Holding the execution gate makes any accidental call to run() observable:
+	// it would wait for cancellation and return 503 instead of an immediate 400.
+	publisher.gate <- struct{}{}
+	defer func() { <-publisher.gate }()
+	valid := strings.Repeat("a", 64)
+	cases := map[string]string{
+		"empty":             `{"target":"beta","client_challenge":""}`,
+		"null":              `{"target":"beta","client_challenge":null}`,
+		"number":            `{"target":"beta","client_challenge":7}`,
+		"array":             `{"target":"beta","client_challenge":[]}`,
+		"short":             `{"target":"beta","client_challenge":"abc"}`,
+		"long":              `{"target":"beta","client_challenge":"` + valid + `0"}`,
+		"uppercase":         `{"target":"beta","client_challenge":"` + strings.Repeat("A", 64) + `"}`,
+		"nonhex":            `{"target":"beta","client_challenge":"` + strings.Repeat("g", 64) + `"}`,
+		"duplicate":         `{"target":"beta","client_challenge":"` + valid + `","client_challenge":"` + valid + `"}`,
+		"escaped duplicate": `{"target":"beta","client_challenge":"` + valid + `","client_\u0063hallenge":"` + valid + `"}`,
+		"unknown":           `{"target":"beta","client_challenge":"` + valid + `","unexpected":true}`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			req := httptest.NewRequest(http.MethodPost, "http://metro.test/api/site/run", strings.NewReader(body)).WithContext(ctx)
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			if w.Code != http.StatusBadRequest || len(publisher.memory) != 0 {
+				t.Fatalf("invalid request reached run or memory: status %d, memory %d, body %s", w.Code, len(publisher.memory), w.Body.String())
+			}
+		})
 	}
 }
 
@@ -492,8 +591,9 @@ func TestSiteRejectsForgedPassportAndFullBytes(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer reader.close()
-			out, err := reader.run(context.Background(), siteRunRequest{Target: "alpha"})
-			if err != nil || out.Status == "CONFIRMED_LOCAL" || len(out.Events) != 1 || out.Events[0].Receipt != nil || out.MemoryEntries != 0 {
+			challenge := strings.Repeat("c", 64)
+			out, err := reader.run(context.Background(), siteRunRequest{Target: "alpha", ClientChallenge: challenge})
+			if err != nil || out.Status == "CONFIRMED_LOCAL" || out.ClientChallenge != challenge || len(out.Events) != 1 || out.Events[0].Receipt != nil || out.Events[0].Packet.Action.Inputs["client_challenge"] != challenge || out.Events[0].Result["client_challenge"] != challenge || out.MemoryEntries != 0 {
 				t.Fatalf("forged bytes confirmed: %+v %v", out, err)
 			}
 			if name == "passport href" && full.Load() != 0 {

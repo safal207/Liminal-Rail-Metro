@@ -92,7 +92,51 @@ type siteAssetManifest struct {
 }
 
 type siteRunRequest struct {
-	Target string `json:"target"`
+	Target          string `json:"target"`
+	ClientChallenge string `json:"client_challenge,omitempty"`
+}
+
+// A challenge is optional for legacy clients, but a supplied value must be a
+// canonical 32-byte nonce. UnmarshalJSON distinguishes an absent field from
+// null or an empty string before any map or resource can be read.
+func (r *siteRunRequest) UnmarshalJSON(raw []byte) error {
+	var members map[string]json.RawMessage
+	if json.Unmarshal(raw, &members) != nil {
+		return errRemoteInvalid
+	}
+	switch len(members) {
+	case 1:
+		if err := siteExactFields(raw, "target"); err != nil {
+			return err
+		}
+	case 2:
+		if err := siteExactFields(raw, "target", "client_challenge"); err != nil {
+			return err
+		}
+	default:
+		return errRemoteInvalid
+	}
+	type plain siteRunRequest
+	if err := json.Unmarshal(raw, (*plain)(r)); err != nil {
+		return errRemoteInvalid
+	}
+	if len(members) == 2 && !validSiteChallenge(r.ClientChallenge) {
+		return errRemoteInvalid
+	}
+	return nil
+}
+
+func validSiteChallenge(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 type siteRunResource struct {
@@ -111,18 +155,19 @@ type siteEvent struct {
 }
 
 type siteRunResult struct {
-	Status        string            `json:"status"`
-	Reason        string            `json:"reason"`
-	Mode          string            `json:"mode"`
-	Target        string            `json:"target"`
-	Map           siteMap           `json:"map"`
-	MapHash       string            `json:"map_hash"`
-	PlannedSteps  int               `json:"planned_steps"`
-	FreshReads    int               `json:"fresh_reads"`
-	MemoryEntries int               `json:"memory_entries"`
-	Learned       bool              `json:"learned"`
-	Events        []siteEvent       `json:"events"`
-	Resources     []siteRunResource `json:"resources"`
+	Status          string            `json:"status"`
+	Reason          string            `json:"reason"`
+	Mode            string            `json:"mode"`
+	Target          string            `json:"target"`
+	ClientChallenge string            `json:"client_challenge,omitempty"`
+	Map             siteMap           `json:"map"`
+	MapHash         string            `json:"map_hash"`
+	PlannedSteps    int               `json:"planned_steps"`
+	FreshReads      int               `json:"fresh_reads"`
+	MemoryEntries   int               `json:"memory_entries"`
+	Learned         bool              `json:"learned"`
+	Events          []siteEvent       `json:"events"`
+	Resources       []siteRunResource `json:"resources"`
 }
 
 type siteService struct {
@@ -702,9 +747,13 @@ func siteRevalidate(m siteMap, target string, ids []string) ([]siteEdge, error) 
 // memory saves transition IDs after every traversed resource was re-read and
 // independently verified; it never saves or reuses data bytes.
 func (s *siteService) run(parent context.Context, req siteRunRequest) (out siteRunResult, err error) {
-	out = siteRunResult{Status: "REJECTED", Mode: "graph", Target: req.Target, Events: []siteEvent{}, Resources: []siteRunResource{}}
+	out = siteRunResult{Status: "REJECTED", Mode: "graph", Target: req.Target, ClientChallenge: req.ClientChallenge, Events: []siteEvent{}, Resources: []siteRunResource{}}
 	if s == nil || !siteID(req.Target) {
 		out.Reason = "invalid target"
+		return out, nil
+	}
+	if req.ClientChallenge != "" && !validSiteChallenge(req.ClientChallenge) {
+		out.Reason = "invalid client challenge"
 		return out, nil
 	}
 	ctx, cancel := context.WithTimeout(parent, siteRunTimeout)
@@ -780,6 +829,9 @@ func (s *siteService) run(parent context.Context, req siteRunRequest) (out siteR
 			return out, idErr
 		}
 		inputs := map[string]any{"map_hash": out.MapHash, "edge": e.ID, "from": state, "to": e.To, "resource_id": resource.ID, "resource_sha256": resource.SHA256, "scope": siteScope}
+		if req.ClientChallenge != "" {
+			inputs["client_challenge"] = req.ClientChallenge
+		}
 		packet := metro.NewPacket(id, "metro-web-demo", "open resource "+req.Target, metro.Action{Kind: siteAction, Inputs: inputs}, []string{siteExecutor})
 		packet.Constraints = metro.Constraints{TimeoutMS: int(siteRunTimeout.Milliseconds()), SideEffect: false}
 		route, routeErr := (metro.Router{ID: "metro-web-demo", Policy: map[string]string{siteAction: siteExecutor}}).Route(packet)
@@ -787,6 +839,9 @@ func (s *siteService) run(parent context.Context, req siteRunRequest) (out siteR
 			return out, routeErr
 		}
 		event := siteEvent{Edge: e, Status: "UNKNOWN", Packet: packet, Route: route}
+		if req.ClientChallenge != "" {
+			event.Result = map[string]any{"client_challenge": req.ClientChallenge}
+		}
 		raw, readErr := s.readResource(ctx, resource)
 		if readErr != nil {
 			out.Events = append(out.Events, event)
@@ -806,6 +861,9 @@ func (s *siteService) run(parent context.Context, req siteRunRequest) (out siteR
 			return out, nil
 		}
 		result := map[string]any{"state": e.To, "resource_id": resource.ID, "sha256": assetHash(raw), "size_bytes": len(raw), "map_hash": out.MapHash}
+		if req.ClientChallenge != "" {
+			result["client_challenge"] = req.ClientChallenge
+		}
 		event.Result = result
 		receipt, receiptErr := metro.MakeSuccessReceipt(packet, route, result, "sha256:"+resource.SHA256)
 		if receiptErr != nil {

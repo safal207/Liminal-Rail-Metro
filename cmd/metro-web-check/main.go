@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -28,7 +29,7 @@ import (
 const (
 	siteProtocol    = "metro.web.site.v0.1"
 	assetProtocol   = "metro.web.site.asset.v0.1"
-	checkProtocol   = "metro.web.independent-check.v0.1"
+	checkProtocol   = "metro.web.independent-check.v0.2"
 	scope           = "resource.read"
 	assetChunkBytes = 64 << 10
 	maxAssetBytes   = 8 << 20
@@ -145,8 +146,8 @@ type event struct {
 	Status  string         `json:"status"`
 	Packet  packet         `json:"packet"`
 	Route   route          `json:"route"`
-	Receipt *receipt       `json:"receipt"`
-	Result  map[string]any `json:"result"`
+	Receipt *receipt       `json:"receipt,omitempty"`
+	Result  map[string]any `json:"result,omitempty"`
 }
 
 type runResource struct {
@@ -156,18 +157,19 @@ type runResource struct {
 }
 
 type runResult struct {
-	Status        string        `json:"status"`
-	Reason        string        `json:"reason"`
-	Mode          string        `json:"mode"`
-	Target        string        `json:"target"`
-	Map           siteMap       `json:"map"`
-	MapHash       string        `json:"map_hash"`
-	PlannedSteps  int           `json:"planned_steps"`
-	FreshReads    int           `json:"fresh_reads"`
-	MemoryEntries int           `json:"memory_entries"`
-	Learned       bool          `json:"learned"`
-	Events        []event       `json:"events"`
-	Resources     []runResource `json:"resources"`
+	Status          string        `json:"status"`
+	ClientChallenge string        `json:"client_challenge,omitempty"`
+	Reason          string        `json:"reason"`
+	Mode            string        `json:"mode"`
+	Target          string        `json:"target"`
+	Map             siteMap       `json:"map"`
+	MapHash         string        `json:"map_hash"`
+	PlannedSteps    int           `json:"planned_steps"`
+	FreshReads      int           `json:"fresh_reads"`
+	MemoryEntries   int           `json:"memory_entries"`
+	Learned         bool          `json:"learned"`
+	Events          []event       `json:"events"`
+	Resources       []runResource `json:"resources"`
 }
 
 type checkedStep struct {
@@ -186,6 +188,7 @@ type checkResult struct {
 	MapHash                   string        `json:"map_hash"`
 	RunFreshnessVerified      bool          `json:"run_freshness_verified"`
 	PublisherIdentityVerified bool          `json:"publisher_identity_verified"`
+	ClientChallengeBound      bool          `json:"client_challenge_bound"`
 	Route                     []checkedStep `json:"route"`
 }
 
@@ -309,7 +312,7 @@ func (v *receipt) UnmarshalJSON(b []byte) error {
 	return json.Unmarshal(b, (*plain)(v))
 }
 func (v *event) UnmarshalJSON(b []byte) error {
-	if err := exact(b, []string{"edge", "status", "packet", "route", "receipt", "result"}); err != nil {
+	if err := exact(b, []string{"edge", "status", "packet", "route"}, "receipt", "result"); err != nil {
 		return err
 	}
 	type plain event
@@ -323,7 +326,7 @@ func (v *runResource) UnmarshalJSON(b []byte) error {
 	return json.Unmarshal(b, (*plain)(v))
 }
 func (v *runResult) UnmarshalJSON(b []byte) error {
-	if err := exact(b, []string{"status", "reason", "mode", "target", "map", "map_hash", "planned_steps", "fresh_reads", "memory_entries", "learned", "events", "resources"}); err != nil {
+	if err := exact(b, []string{"status", "client_challenge", "reason", "mode", "target", "map", "map_hash", "planned_steps", "fresh_reads", "memory_entries", "learned", "events", "resources"}); err != nil {
 		return err
 	}
 	type plain runResult
@@ -548,8 +551,9 @@ func validateManifest(m manifest, r resource) error {
 }
 
 type checker struct {
-	origin string
-	client *http.Client
+	origin          string
+	client          *http.Client
+	challengeReader io.Reader
 }
 
 func newChecker(raw string) (*checker, error) {
@@ -588,7 +592,15 @@ func newChecker(raw string) (*checker, error) {
 	// The CLI's 90-second context bounds the entire check. A per-request
 	// Client.Timeout would also cap body transfer and can truncate a valid
 	// 8 MiB asset even when the caller's overall deadline has not expired.
-	return &checker{origin: u.Scheme + "://" + u.Host, client: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+	return &checker{origin: u.Scheme + "://" + u.Host, client: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, challengeReader: rand.Reader}, nil
+}
+
+func makeClientChallenge(random io.Reader) (string, error) {
+	var challenge [32]byte
+	if _, err := io.ReadFull(random, challenge[:]); err != nil {
+		return "", uncertain(fmt.Errorf("client challenge randomness unavailable: %w", err))
+	}
+	return hex.EncodeToString(challenge[:]), nil
 }
 
 func (c *checker) fetch(ctx context.Context, method, path, contentType string, body []byte, limit int) ([]byte, error) {
@@ -689,7 +701,7 @@ func jsonMapEquals(got map[string]any, want map[string]any) bool {
 
 func validTime(s string) bool { _, err := time.Parse(time.RFC3339Nano, s); return err == nil }
 
-func verifyEvent(ev event, e edge, r resource, target, mapHash string, used map[string]bool, previousCompletion time.Time) error {
+func verifyEvent(ev event, e edge, r resource, target, mapHash, challenge string, used map[string]bool, previousCompletion time.Time) error {
 	if !reflect.DeepEqual(ev.Edge, e) || ev.Status != "CONFIRMED_LOCAL" || ev.Receipt == nil {
 		return errors.New("event transition or status mismatch")
 	}
@@ -701,14 +713,14 @@ func verifyEvent(ev event, e edge, r resource, target, mapHash string, used map[
 	if p.Protocol != "metro.packet.v0.1" || p.SourceAgent != "metro-web-demo" || !validTime(p.CreatedAt) || p.Goal != "open resource "+target || p.Action.Kind != "open_resource" || len(p.AllowedTargets) != 1 || p.AllowedTargets[0] != "metro-site-reader" || len(p.ContextRefs) != 0 || p.PreviousReceiptRef != "" || p.Constraints.TimeoutMS != 10000 || p.Constraints.SideEffect {
 		return errors.New("packet contract mismatch")
 	}
-	wantInputs := map[string]any{"edge": e.ID, "from": e.From, "map_hash": mapHash, "resource_id": r.ID, "resource_sha256": r.SHA256, "scope": scope, "to": e.To}
+	wantInputs := map[string]any{"client_challenge": challenge, "edge": e.ID, "from": e.From, "map_hash": mapHash, "resource_id": r.ID, "resource_sha256": r.SHA256, "scope": scope, "to": e.To}
 	if !jsonMapEquals(p.Action.Inputs, wantInputs) {
 		return errors.New("packet action inputs mismatch")
 	}
 	if rt.Protocol != "metro.route.v0.1" || rt.RouteID != "route-"+p.ActionID || rt.ActionID != p.ActionID || rt.RouterID != "metro-web-demo" || rt.DecisionMode != "deterministic" || rt.SelectedTarget != "metro-site-reader" || len(rt.Candidates) != 1 || rt.Candidates[0].Target != "metro-site-reader" || rt.Candidates[0].Score != 1 || rt.Confidence != 1 || rt.PolicyRef != "policy://demo/route-by-action-kind" || !validTime(rt.DecidedAt) {
 		return errors.New("route binding or policy mismatch")
 	}
-	wantResult := map[string]any{"map_hash": mapHash, "resource_id": r.ID, "sha256": r.SHA256, "size_bytes": float64(r.Size), "state": e.To}
+	wantResult := map[string]any{"client_challenge": challenge, "map_hash": mapHash, "resource_id": r.ID, "sha256": r.SHA256, "size_bytes": float64(r.Size), "state": e.To}
 	if !jsonMapEquals(ev.Result, wantResult) {
 		return errors.New("event result mismatch")
 	}
@@ -726,7 +738,7 @@ func verifyEvent(ev event, e edge, r resource, target, mapHash string, used map[
 }
 
 func (c *checker) check(ctx context.Context, target string) (checkResult, error) {
-	out := checkResult{Protocol: checkProtocol, Status: "VERIFIED_BYTES_AND_TRANSCRIPT", Origin: c.origin, Target: target, Route: []checkedStep{}}
+	out := checkResult{Protocol: checkProtocol, Status: "VERIFIED_BYTES_AND_CHALLENGE_BOUND_TRANSCRIPT", Origin: c.origin, Target: target, Route: []checkedStep{}}
 	if !validID(target) {
 		return checkResult{}, errors.New("invalid target ID")
 	}
@@ -753,7 +765,11 @@ func (c *checker) check(ctx context.Context, target string) (checkResult, error)
 		}
 	}
 	mapHash := hashJSON(m)
-	body, _ := json.Marshal(map[string]string{"target": target})
+	challenge, err := makeClientChallenge(c.challengeReader)
+	if err != nil {
+		return checkResult{}, err
+	}
+	body, _ := json.Marshal(map[string]string{"target": target, "client_challenge": challenge})
 	raw, err := c.fetch(ctx, http.MethodPost, "/api/site/run", "application/json", body, maxRunBytes)
 	if err != nil {
 		return checkResult{}, err
@@ -761,6 +777,9 @@ func (c *checker) check(ctx context.Context, target string) (checkResult, error)
 	var run runResult
 	if err := strictJSON(raw, maxRunBytes, &run); err != nil {
 		return checkResult{}, fmt.Errorf("run response: %w", err)
+	}
+	if run.ClientChallenge != challenge {
+		return checkResult{}, errors.New("run client challenge mismatch")
 	}
 	if run.Status == "UNKNOWN" {
 		return checkResult{}, uncertain(errors.New("publisher run outcome unknown"))
@@ -775,7 +794,7 @@ func (c *checker) check(ctx context.Context, target string) (checkResult, error)
 		if run.Resources[i] != (runResource{ID: r.ID, SHA256: r.SHA256, Size: r.Size}) {
 			return checkResult{}, fmt.Errorf("step %d resource mismatch", i+1)
 		}
-		if err := verifyEvent(run.Events[i], e, r, target, mapHash, used, previousCompletion); err != nil {
+		if err := verifyEvent(run.Events[i], e, r, target, mapHash, challenge, used, previousCompletion); err != nil {
 			return checkResult{}, fmt.Errorf("step %d: %w", i+1, err)
 		}
 		previousCompletion, _ = time.Parse(time.RFC3339Nano, run.Events[i].Receipt.CompletedAt)
@@ -789,6 +808,7 @@ func (c *checker) check(ctx context.Context, target string) (checkResult, error)
 		return checkResult{}, errors.New("map changed during check")
 	}
 	out.MapHash = mapHash
+	out.ClientChallengeBound = true
 	return out, nil
 }
 
