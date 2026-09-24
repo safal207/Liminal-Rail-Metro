@@ -94,6 +94,7 @@ when proposing a new capability.
 
 ## License status
 
-`main` does not yet contain a license file. [PR #32](https://github.com/safal207/Liminal-Rail-Metro/pull/32)
-proposes MIT; check its status before relying on it for reuse or submitting a
-substantial external contribution.
+Check the root `LICENSE` file in your checkout before relying on its terms or
+submitting a substantial external contribution. The proposed MIT text is
+tracked in [PR #32](https://github.com/safal207/Liminal-Rail-Metro/pull/32);
+without a license file in the revision you use, do not assume that MIT applies.
