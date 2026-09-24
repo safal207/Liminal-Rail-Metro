@@ -1,0 +1,20 @@
+{
+  "protocol": "metro.web.site.v0.1",
+  "start": "entry",
+  "nodes": [
+    {"id": "entry", "label": "Вход"},
+    {"id": "guide", "label": "Путеводитель", "resource_id": "guide"},
+    {"id": "spec", "label": "Описание протокола", "resource_id": "spec"},
+    {"id": "page", "label": "Пример страницы", "resource_id": "page"}
+  ],
+  "edges": [
+    {"id": "open_guide", "from": "entry", "to": "guide", "action": "open_resource", "scope": "resource.read", "side_effect": false, "resource": "guide"},
+    {"id": "open_spec", "from": "guide", "to": "spec", "action": "open_resource", "scope": "resource.read", "side_effect": false, "resource": "spec"},
+    {"id": "open_page", "from": "guide", "to": "page", "action": "open_resource", "scope": "resource.read", "side_effect": false, "resource": "page"}
+  ],
+  "resources": [
+    {"id": "guide", "label": "Путеводитель", "path": "guide.txt"},
+    {"id": "spec", "label": "Описание протокола", "path": "protocol.txt"},
+    {"id": "page", "label": "Пример страницы", "path": "page.html"}
+  ]
+}

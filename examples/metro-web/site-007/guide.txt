@@ -1,0 +1,8 @@
+METRO WEB 007 / GUIDE
+
+This station introduces the demonstration site. A reader can choose a named
+resource, plan a route across the published graph, read each reached file and
+verify its exact bytes against a versioned SHA-256 passport.
+
+The next stations contain protocol notes and an HTML file. The HTML file is
+served as a download; this prototype does not render or run publisher content.
