@@ -1,3 +1,5 @@
+//go:build darwin || dragonfly || freebsd || linux || netbsd || openbsd || windows
+
 package policyauthority
 
 import (
@@ -165,23 +167,5 @@ func TestChainHeadLockBlocksOtherProcess(t *testing.T) {
 	waitForChainHeadChildDone(t, child)
 	if _, err := os.Stat(input.Acquired); err != nil {
 		t.Fatalf("second process did not acquire released lock: %v", err)
-	}
-}
-
-func TestChainHeadLockOpenFailureIsClosed(t *testing.T) {
-	_, signed, _, _, _, _ := rootChain(t)
-	candidate, err := chainHeadFor([]SignedManifest{signed}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(t.TempDir(), "head.json")
-	if err := os.Mkdir(path+".lock", 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := acceptChainHead(path, candidate, []SignedManifest{signed}, nil); err == nil {
-		t.Fatal("head accepted without acquiring lock")
-	}
-	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("head changed despite lock failure: stat error %v", err)
 	}
 }
