@@ -27,6 +27,17 @@ cd Liminal-Rail-Metro
 git switch --detach 6c01c12f96997cef58b149d299c76de8b1fffa05
 ```
 
+For a quick first check, run this one command from the cloned repository:
+
+```sh
+go test -count=1 -run '^TestCheckerAgainstRealPublisher$' -v ./cmd/metro-web-check
+```
+
+Look for `PASS`. This test builds and starts a real publisher on a temporary
+loopback port and checks the `guide → spec` route in the test process. It does
+not run the separate checker executable; use the steps below to verify that
+client against a publisher in another process.
+
 Start the example publisher in one terminal. It serves three operator-selected
 files and a read-only graph on local loopback:
 
