@@ -42,8 +42,9 @@ A2A, HTTPS, a browser, or an agent framework.
 
 Use the repository as the canonical entry point: a plain-language README,
 clean-clone demo, focused docs, useful issue labels, and a short preview video
-or GIF that links back to the exact revision. Once licensing and preview gates
-pass, add accurate GitHub topics and write one technical walkthrough of a
+or GIF that links back to the exact revision. GitHub topics are configured;
+keep them accurate as the preview changes. Once licensing and preview gates
+pass, write one technical walkthrough of a
 concrete task (“find an item under a budget without ordering”) that shows the
 graph, denied actions, and receipt. Share it in developer communities that
 permit project posts; answer questions there and invite counterexamples. Do
