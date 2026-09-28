@@ -1,43 +1,39 @@
 # Try Liminal Rail locally
 
-**Developer preview, not a hosted product or production gateway.** This package
-wraps the existing `internal/codexadapter` without changing Metro, Moltbook, the
-public MCP server, deployment configuration, or any existing authority policy.
+**Experimental localhost demo / release candidate, not a hosted product or
+production gateway.** This package wraps `internal/codexadapter`; it does not
+change the existing authority policy or connect to live providers.
 
 ## What you can try
 
 Send text over HTTP, obtain its SHA-256 plus a bound Metro receipt, and verify
-that proof separately. The bundled demo also requires rejection of a duplicate
-action and a tampered proof, and checks that an external action does not execute.
+that proof separately. The bundled demo requires rejection of a duplicate action
+and a tampered proof, and checks that an external action does not execute.
 
-No account, model API, Moltbook app key, token, Rust toolchain, or payment is needed.
-The initial build downloads a Go container image. Runtime actions are local only.
+No account, model API key, Moltbook token, Rust toolchain, wallet or payment is
+needed. The initial build downloads its Go image and any required modules;
+runtime actions are local only.
 
-## Get the preview
+## Get the code
 
-While PR #29 is a draft, these files are not on `main`. With Git installed, use
-a new local directory so existing work is not changed:
+Use a new directory so existing work is not changed:
 
 ```sh
 git clone https://github.com/safal207/Liminal-Rail-Metro.git liminal-rail-preview
 cd liminal-rail-preview
-git fetch origin refs/pull/29/head
-git switch --detach FETCH_HEAD
 git rev-parse HEAD
 ```
 
-Record the printed commit SHA with any test result. The PR head can change;
-a successful run on one SHA does not validate a later SHA. Do not substitute
-`main` if fetching this preview fails. These commands do not merge the PR.
-
-The commands below are an evaluation recipe, not evidence that a run has passed.
-Check PR #29 for exact-head test execution and independent review results before
-treating the package as validated. No production-readiness claim is made.
+Record the printed SHA. A result on one SHA does not validate a later revision.
+For an external acceptance report, follow the exact revision and checkout
+instructions in [#31](https://github.com/safal207/Liminal-Rail-Metro/issues/31).
+Do not substitute a different revision when the requested one cannot be fetched.
+Before this PR is merged, a root clone of `main` will not yet contain these files;
+PR reviewers should check out the exact candidate head recorded in PR #29.
 
 ## Start with Docker
 
-Install a current Docker Engine/Desktop with Docker Compose v2. From the preview
-repository root obtained above:
+Use Docker Engine/Desktop with Compose v2 supporting `up --wait`:
 
 ```sh
 docker compose up --build --wait rail
@@ -50,31 +46,38 @@ The second command must print JSON containing:
 {"demo":"PASS","scope":"local_consistency_only","live_provider":false}
 ```
 
-The actual output also lists five checked conditions. A failed check exits nonzero;
-the demo does not automatically retry failed or uncertain action requests. Its
-intentional duplicate call is a negative test, not recovery after a lost response.
-Each demo uses fresh random action IDs, so running the demo again is a new test.
+Its `checks` array must contain exactly these five names:
 
-The API is published on **127.0.0.1:8788 only**, not on the LAN or the internet.
-Inside Compose it listens on `0.0.0.0` only because the `-container` flag is explicit.
-Do not change the port mapping to expose this unauthenticated preview publicly.
-Other local users/processes and containers on the same network are not isolated
-from it. No egress-firewall or hostile-host sandbox claim is made.
+```text
+local_hash_and_receipt
+separate_verification
+duplicate_refused
+tampering_refused
+external_action_not_dispatched
+```
 
-Stop it with:
+A failed check exits nonzero. The demo does not automatically retry failed or
+uncertain action requests. Its duplicate call is a deliberate negative test,
+not recovery after a lost response. Running the demo again uses new random IDs.
+
+The API is published on **127.0.0.1:8788 only**, not the LAN or internet. Inside
+Compose, `0.0.0.0` listening requires the explicit `-container` flag. Do not change
+the host port mapping to expose this unauthenticated preview. Other local users,
+processes and containers on its network are not isolated from it.
+
+Stop the preview:
 
 ```sh
 docker compose down
 ```
 
-There are no secret variables, mounted wallets, host folders, or persistent volumes.
-The runtime image is non-root, read-only, and contains only the static executable.
-The Docker build context is allowlisted to Go sources and module metadata.
+There are no credentials, mounted wallets, host folders or persistent volumes.
+The runtime image is non-root and read-only, with a static executable and
+`/LICENSE`. The build context allowlists Go sources, module metadata and LICENSE.
 
 ## Without Docker
 
-From the preview repository root, with a supported Go version (the workflow pins
-Go 1.27.1):
+With Go installed (the quickstart workflow/build image pins Go 1.27.1):
 
 ```sh
 go build -o liminal-rail ./cmd/liminal-rail
@@ -87,15 +90,14 @@ In another terminal:
 ./liminal-rail demo
 ```
 
-On Windows, build `liminal-rail.exe` and use `.\liminal-rail.exe serve` and
-`.\liminal-rail.exe demo`. Native Windows execution is not implied by Linux CI;
-the Docker route uses a Linux container on Windows/macOS Docker Desktop.
+On Windows build `liminal-rail.exe`, then use `.\liminal-rail.exe serve` and
+`.\liminal-rail.exe demo`. Native Windows support is not proved by Linux CI.
+Docker Desktop uses a Linux container on Windows/macOS.
 
-## Call it from your own agent or script
+## Call it from an agent or script
 
-`GET /healthz` reports preview mode and explicitly says there is no authenticated
-identity or live provider. `POST /v1/actions` accepts the existing adapter JSON
-contract, with `Content-Type: application/json`:
+`GET /healthz` reports preview mode, local consistency scope, no authenticated
+identity and no live provider. `POST /v1/actions` accepts JSON such as:
 
 ```json
 {
@@ -108,73 +110,75 @@ contract, with `Content-Type: application/json`:
 }
 ```
 
-Save that as `action.json`, then:
+Save it as `action.json` and run:
 
 ```sh
 curl --fail-with-body -sS http://127.0.0.1:8788/v1/actions -H 'Content-Type: application/json' --data-binary @action.json -o proof.json
 curl --fail-with-body -sS http://127.0.0.1:8788/v1/verify -H 'Content-Type: application/json' --data-binary @proof.json
 ```
 
-On Windows PowerShell use `curl.exe` and save JSON as UTF-8 without BOM, or use the
-bundled demo to avoid shell-encoding differences. Do not submit secrets as text:
-the returned proof intentionally contains the submitted text so its result can
-be independently recomputed. No server-side receipt history is created.
+In PowerShell use `curl.exe` and UTF-8 JSON without BOM, or use the bundled demo.
+Do not submit secrets: the returned proof includes the text so the result can be
+recomputed. The server does not retain a receipt history. Reusing these sample
+IDs in the same instance returns 409; that is expected, not an installation error.
 
-A successful hash response has `evidence.dispatched=true`, a SHA-256 in
-`evidence.result.sha256`, and a receipt with `SUCCEEDED`. Submit the **complete**
-response to `/v1/verify`; its `verified=true` means local consistency only.
+A successful hash response contains `evidence.dispatched=true`, the digest in
+`evidence.result.sha256`, and a `SUCCEEDED` receipt. Send the **complete** response
+to `/v1/verify`. Its `verified=true` means local consistency only.
 
-`external_action` requests use a description and `side_effect=true`. They can
-produce HTTP 200 with a valid non-dispatch proof: `REQUIRE_APPROVAL`,
-`dispatched=false`, and **no receipt**. There is no approval-submission endpoint
-and no external executor. HTTP 200 alone is not execution success.
-
-The retained `codex` protocol/source label is adapter provenance, **not** proof
-that a real Codex session ran or that a caller identity was authenticated.
-The API deliberately does not pretend a synthetic identity is live Moltbook auth.
+An `external_action` with a description and `side_effect=true` can return HTTP 200
+with `REQUIRE_APPROVAL`, `dispatched=false` and **no receipt**. There is no approval
+endpoint or external executor. HTTP 200 alone does not mean execution succeeded.
+The `codex` label is adapter provenance, not evidence of a live Codex session.
 
 ## Admission, errors and replay limits
 
-Action JSON is bounded to 64 KiB, text to 32 KiB, and proof JSON to 256 KiB.
-Duplicate/unknown/incorrectly-cased fields, invalid Unicode, explicit nulls and
-excessive nesting are rejected by the existing strict decoder. Browser-origin
-requests, unexpected Host values, and query strings are not supported. There is
-no CORS allowance. Server timeouts and 64 concurrent handler slots are explicit.
+Action JSON is bounded to 64 KiB, text to 32 KiB and proof JSON to 256 KiB.
+The strict decoder rejects duplicate/unknown/incorrectly-cased fields, invalid
+Unicode, explicit nulls and excessive nesting. Browser Origin requests,
+unexpected Host values and query strings are rejected; no CORS access is added.
+The server has timeouts and 64 concurrent handler slots.
 
-After strict decoding and an action-ID shape check, an admitted ID is reserved
-**before** adapter validation/execution. Even a subsequently rejected, cancelled,
-or disconnected request consumes that ID; it cannot be retried in this instance.
-This conservative admission behavior is separate from MOLT-001 Station semantics.
-Malformed JSON, invalid IDs, and requests refused before admission do not consume
-an ID. The demo-only store holds 1,024 IDs without eviction; when full, new actions
-are refused. Restarting clears the entire store, so this is **not durable,
-distributed, cross-process or cross-replica exactly-once protection**.
-
-Changing an action ID or restarting is **not** a safe recovery protocol for
-uncertain external effects. This preview has only a pure local hash executor.
-Do not generalize its replay behavior to payments, writes or other side effects.
+An admitted action ID is reserved before adapter validation/execution. Rejected,
+cancelled or disconnected admitted requests remain consumed in that instance.
+Malformed JSON, invalid IDs and pre-admission rejections do not consume an ID.
+The 1,024-ID registry never evicts. A restart clears it: **this is not durable,
+distributed, cross-process, cross-replica or exactly-once protection**.
+Changing IDs/restarting is not a safe recovery protocol for uncertain effects.
+This demo has only a pure local hash executor; do not generalize to payments/writes.
 
 | HTTP | Meaning |
 | --- | --- |
-| 400 | Invalid JSON, invalid action ID, or unsupported query. |
-| 403 | Browser Origin or unexpected Host rejected. |
+| 400 | Invalid JSON/action ID, or unsupported query. |
+| 403 | Browser Origin or unexpected Host. |
 | 404 / 405 / 415 | Unknown path, wrong method, or non-JSON/encoded input. |
 | 409 | Action ID already consumed; no re-execution. |
-| 422 | Action rejected/uncertain, or inconsistent proof. No success proof returned. |
-| 503 | Admission slots or bounded action registry full. |
+| 422 | Action rejected/uncertain, or inconsistent proof. |
+| 503 | Handler admission slots or action registry full. |
 
-## Verification and claim ceiling
+## Troubleshooting
 
-The `Developer Quickstart` workflow is configured to check out the exact PR head
-(not an implicit merge ref), run the full Go suite, focused race tests and vet,
-then build the actual Docker image and run the Compose demo. It is configured
-to upload the sanitized demo summary. This configuration alone is not execution
-evidence; even a successful CI run is not an independent security review.
+If port 8788 is occupied, stop the conflicting local demo before starting this one;
+do not solve the conflict by publishing an unauthenticated listener externally.
+If `--wait` is unknown, update Compose v2 rather than claiming the startup check
+passed. If an image/module download fails, the build is blocked by the environment:
+do not report a successful demo. Record the error and exact versions without secrets.
 
-A receipt/evidence hash is unsigned. Anyone can create another internally
-consistent proof. Verification does not authenticate the submitter, attest a
-host/provider, establish an observed external event, or certify production safety.
+## Evidence and release boundary
 
-This first package does not add live Moltbook/AgentProof calls, a web UI,
-multitenant authentication, TLS, durable receipt storage, billing, a managed
-service, a production deployment, a license change, or a merge of any draft PR.
+The `Developer Quickstart` workflow checks out the exact candidate on a PR and
+exact `main` commit on a push. It runs full Go tests, focused race tests and vet,
+builds the real image, checks non-root identity and the packaged license, and
+runs all five demo checks. Artifacts contain revision/environment metadata,
+sanitary demo output and an archive of the tracked source at that revision.
+
+CI success is not an independent security audit or third-party clean-room report.
+The formal preview release remains gated by [#30](https://github.com/safal207/Liminal-Rail-Metro/issues/30)
+and [#31](https://github.com/safal207/Liminal-Rail-Metro/issues/31).
+An unsigned, internally consistent receipt does not authenticate the submitter,
+attest hardware/provider identity, witness an external event or certify safety.
+
+The package does not add live Moltbook/AgentProof execution, a web UI, multi-tenant
+authentication, TLS, durable receipt storage, billing or production deployment.
+See [README scope and known limitations](README.md#scope-and-known-limitations)
+for separate experimental paths and open review work.

@@ -7,5 +7,6 @@
 !cmd/
 !cmd/liminal-rail/
 !cmd/liminal-rail/*.go
+!LICENSE
 !Dockerfile.quickstart
 !Dockerfile.quickstart.dockerignore

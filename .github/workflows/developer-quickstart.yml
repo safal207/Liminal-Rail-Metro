@@ -2,6 +2,7 @@ name: Developer Quickstart
 on:
   push:
     branches:
+      - main
       - 'feat/local-rest-quickstart-20260921'
     paths:
       - 'cmd/liminal-rail/**'
@@ -10,7 +11,11 @@ on:
       - 'go.sum'
       - 'Dockerfile.quickstart*'
       - 'compose.yaml'
+      - 'LICENSE'
+      - 'README.md'
+      - 'TECHNICAL.md'
       - 'QUICKSTART.md'
+      - 'DEMO_DAY.md'
       - '.github/workflows/developer-quickstart.yml'
   pull_request:
     paths:
@@ -20,7 +25,11 @@ on:
       - 'go.sum'
       - 'Dockerfile.quickstart*'
       - 'compose.yaml'
+      - 'LICENSE'
+      - 'README.md'
+      - 'TECHNICAL.md'
       - 'QUICKSTART.md'
+      - 'DEMO_DAY.md'
       - '.github/workflows/developer-quickstart.yml'
   workflow_dispatch:
 permissions:
@@ -37,12 +46,21 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.1'
-      - name: Record exact checkout
+      - name: Record exact checkout and environment
         run: |
-          git rev-parse HEAD
-          git rev-parse HEAD^{tree}
+          mkdir -p quickstart-evidence
+          {
+            printf 'commit='; git rev-parse HEAD
+            printf 'tree='; git rev-parse HEAD^{tree}
+            printf 'observed_utc='; date -u +%Y-%m-%dT%H:%M:%SZ
+            uname -srm
+            go version
+            docker --version
+            docker compose version
+          } | tee quickstart-evidence/revision.txt
       - name: Formatting, full suite, vet and focused race
         run: |
+          test -s LICENSE
           test -z "$(gofmt -l cmd/liminal-rail)"
           go test -count=1 ./...
           go vet ./cmd/liminal-rail
@@ -51,15 +69,39 @@ jobs:
         run: |
           docker compose config --quiet
           docker compose up --build --wait --wait-timeout 120 rail
-          test "$(docker inspect -f '{{.Config.User}}' "$(docker compose ps -q rail)")" = '65532:65532'
-          curl --fail --silent http://127.0.0.1:8788/healthz
-          docker compose run --rm --no-deps demo | tee quickstart-demo.json
-          python3 -c 'import json; d=json.load(open("quickstart-demo.json")); assert d["demo"] == "PASS"; assert d["live_provider"] is False; assert len(d["checks"]) == 5'
+          cid="$(docker compose ps -q rail)"
+          test "$(docker inspect -f '{{.Config.User}}' "$cid")" = '65532:65532'
+          docker cp "$cid:/LICENSE" quickstart-evidence/image-LICENSE
+          cmp LICENSE quickstart-evidence/image-LICENSE
+          curl --fail --silent http://127.0.0.1:8788/healthz > quickstart-evidence/health.json
+          docker compose run --rm --no-deps demo | tee quickstart-evidence/demo.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('quickstart-evidence')
+          d = json.loads((root / 'demo.json').read_text())
+          h = json.loads((root / 'health.json').read_text())
+          expected = ['local_hash_and_receipt', 'separate_verification', 'duplicate_refused', 'tampering_refused', 'external_action_not_dispatched']
+          assert d['demo'] == 'PASS'
+          assert d['scope'] == 'local_consistency_only'
+          assert d['live_provider'] is False
+          assert d['checks'] == expected
+          assert h['ok'] is True and h['mode'] == 'developer_preview'
+          assert h['scope'] == 'local_consistency_only'
+          assert h['authenticated_identity'] is False and h['live_provider'] is False
+          assert h['replay_scope'] == 'single_instance_memory'
+          print('QUICKSTART: PASS 5/5; license packaged; localhost scope unchanged')
+          PY
+      - name: Archive tracked source and checksums
+        run: |
+          git archive --format=zip --output=quickstart-evidence/source.zip HEAD
+          cd quickstart-evidence
+          sha256sum revision.txt demo.json health.json image-LICENSE source.zip > SHA256SUMS
       - name: Compose cleanup
         if: always()
         run: docker compose down --remove-orphans
       - uses: actions/upload-artifact@v4
         with:
           name: quickstart-demo-${{ github.event.pull_request.head.sha || github.sha }}
-          path: quickstart-demo.json
+          path: quickstart-evidence/
           if-no-files-found: error

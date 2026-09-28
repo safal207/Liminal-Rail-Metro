@@ -8,6 +8,7 @@ RUN CGO_ENABLED=0 go build -mod=readonly -trimpath -ldflags="-s -w" -o /out/limi
 
 FROM scratch
 COPY --from=build /out/liminal-rail /liminal-rail
+COPY LICENSE /LICENSE
 USER 65532:65532
 EXPOSE 8788
 ENTRYPOINT ["/liminal-rail"]
