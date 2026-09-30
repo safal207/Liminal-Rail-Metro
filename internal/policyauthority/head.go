@@ -94,10 +94,18 @@ func OpenDurableResolver(statePath string, root TrustRoot, manifests []SignedMan
 	return r, nil
 }
 
-func acceptChainHead(path string, candidate ChainHead, manifests []SignedManifest, rotations []Rotation) error {
+func acceptChainHead(path string, candidate ChainHead, manifests []SignedManifest, rotations []Rotation) (resultErr error) {
 	if err := candidate.Validate(); err != nil {
 		return err
 	}
+	lock, err := openChainHeadLock(path)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, closeChainHeadLock(lock))
+	}()
+
 	accepted, err := readChainHead(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return writeChainHeadAtomic(path, candidate)

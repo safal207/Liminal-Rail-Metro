@@ -83,7 +83,18 @@ rotation_hash
 head_hash
 ```
 
-On first acceptance the head is durably written with file fsync, atomic rename and directory fsync.
+The write path syncs a temporary file, renames it over the head, then syncs the
+parent directory. Linux tests cover this path. On Windows the final directory
+sync currently fails after the rename; see [issue #45](https://github.com/safal207/Liminal-Rail-Metro/issues/45).
+Do not treat a Windows error as proof that the previous head is still on disk.
+
+Cooperating processes that share a state path serialize the entire read, check,
+and write through a persistent sibling `.lock` file. Keep the state directory
+trusted and on a local filesystem, keep the lock file in place, and use
+`OpenDurableResolver` for every writer. Failure to acquire or release the lock
+fails closed. The lock does not protect against a process that directly edits
+the head or replaces files in the state directory; network filesystem locking
+and power-loss durability outside the tested environment remain unverified.
 
 On restart:
 
