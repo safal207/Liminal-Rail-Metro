@@ -146,6 +146,9 @@ func MakeSuccessReceipt(packet Packet, route Route, result map[string]any, resul
 }
 
 func Verify(packet Packet, route Route, result map[string]any, receipt Receipt) error {
+	if route.ActionID != packet.ActionID {
+		return errors.New("route action_id mismatch")
+	}
 	if receipt.ActionID != packet.ActionID {
 		return errors.New("receipt action_id mismatch")
 	}
